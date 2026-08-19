@@ -11,6 +11,7 @@ import {
 import { createRng } from "../rng";
 import { fatigueDrain, DEFAULT_TACTICS } from "../tactics";
 import { makePlayer } from "./factories";
+import type { TeamTactics } from "../types";
 
 describe("recoverFitness", () => {
   it("recovers most of the gap in a week", () => {
@@ -34,7 +35,7 @@ describe("recoverFitness", () => {
   it("compounds across a congested run without rotation", () => {
     // Play a full match every week at high tempo and press: fitness should
     // settle at a visibly reduced level rather than bouncing back to 100.
-    const tactics = { ...DEFAULT_TACTICS, tempo: 5, pressing: 5 };
+    const tactics: TeamTactics = { ...DEFAULT_TACTICS, tempo: 5, pressing: 5 };
     let fitness = 100;
     for (let round = 0; round < 15; round++) {
       fitness = Math.max(0, fitness - fatigueDrain("LCM", 70, tactics) * 90);

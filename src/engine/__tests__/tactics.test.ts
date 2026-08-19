@@ -204,7 +204,8 @@ describe("applyTacticsChange", () => {
   });
 
   it("clamps out-of-range values instead of trusting them", () => {
-    const out = applyTacticsChange(t(), { mentality: 99, tempo: -4 } as Partial<TeamTactics>);
+    // Values arriving from an HTTP payload are not trusted to be in range.
+    const out = applyTacticsChange(t(), { mentality: 99, tempo: -4 } as unknown as Partial<TeamTactics>);
     expect(out.mentality).toBe(5);
     expect(out.tempo).toBe(1);
   });
