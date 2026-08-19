@@ -6,6 +6,13 @@ import type { MatchEvent } from "@/engine";
 /** Events that are noise in a ticker unless something came of them. */
 const MINOR_TYPES = new Set(["foul"]);
 
+/**
+ * Lines that are scene-setting rather than incident. They are printed in a
+ * quieter style so the eye can skim past them to the football, which is the
+ * whole reason it is safe to have a lot of them.
+ */
+const QUIET_TYPES = new Set(["buildup", "atmosphere", "pundit", "corner", "offside", "var_check"]);
+
 const ACCENT: Partial<Record<MatchEvent["type"], string>> = {
   goal: "var(--good)",
   save: "var(--accent)",
@@ -16,6 +23,10 @@ const ACCENT: Partial<Record<MatchEvent["type"], string>> = {
   penalty_missed: "var(--bad)",
   sub: "var(--text-muted)",
   tactic_change: "var(--text-muted)",
+  woodwork: "var(--ok)",
+  goal_line_clearance: "var(--accent)",
+  offside: "var(--text-dim)",
+  var_check: "var(--text-dim)",
 };
 
 const LABEL: Partial<Record<MatchEvent["type"], string>> = {
@@ -29,6 +40,10 @@ const LABEL: Partial<Record<MatchEvent["type"], string>> = {
   tactic_change: "TACTICS",
   halftime: "HT",
   fulltime: "FT",
+  woodwork: "POST",
+  goal_line_clearance: "OFF THE LINE",
+  offside: "OFFSIDE",
+  var_check: "CHECK",
 };
 
 function formatMinute(event: MatchEvent): string {
@@ -57,7 +72,7 @@ export function Ticker({
   const shown = events.filter((e) => !MINOR_TYPES.has(e.type));
 
   return (
-    <div className="max-h-[420px] min-h-[240px] overflow-y-auto">
+    <div className="max-h-[540px] min-h-[240px] overflow-y-auto">
       {shown.length === 0 ? (
         <p className="px-3 py-8 text-center text-[var(--text-muted)]">
           The teams are lining up.
@@ -107,9 +122,13 @@ export function Ticker({
                     className={
                       event.type === "goal"
                         ? "font-medium"
-                        : isUserEvent
-                          ? ""
-                          : "text-[var(--text-muted)]"
+                        : event.type === "pundit"
+                          ? "italic text-[var(--text-dim)]"
+                          : QUIET_TYPES.has(event.type)
+                            ? "text-[var(--text-dim)]"
+                            : isUserEvent
+                              ? ""
+                              : "text-[var(--text-muted)]"
                     }
                   >
                     {event.commentary}
