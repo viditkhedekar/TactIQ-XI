@@ -15,6 +15,15 @@ import { FORMATIONS } from "../tactics";
 
 let nextId = 1;
 
+/**
+ * Resets the id counter. Tests that compare two independently built matches
+ * need the same players to carry the same ids, or the comparison fails on the
+ * ids alone rather than on anything the simulation did.
+ */
+export function resetPlayerIds(): void {
+  nextId = 1;
+}
+
 /** A player with every attribute at `level`, overridable field by field. */
 export function makePlayer(overrides: Partial<EnginePlayer> = {}): EnginePlayer {
   const level = overrides.overall ?? 70;
