@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMatchStore, visibleEvents, type SideSummary } from "@/store/matchStore";
+import { ON_TARGET_EVENT_TYPES, SHOT_EVENT_TYPES } from "@/engine";
 import { Button, Panel } from "@/components/ui/primitives";
 import { Ticker } from "./Ticker";
 import { TacticsDrawer } from "./TacticsDrawer";
@@ -327,11 +328,13 @@ function MatchStats({
   home: SideSummary;
   away: SideSummary;
 }) {
-  const count = (clubId: number, types: string[]) =>
+  const count = (clubId: number, types: readonly string[]) =>
     events.filter((e) => e.clubId === clubId && types.includes(e.type)).length;
 
-  const shotTypes = ["goal", "save", "shot_off", "shot_blocked", "penalty_missed"];
-  const onTargetTypes = ["goal", "save"];
+  // Taken from the engine's own list so a shot that gets relabelled as hitting
+  // the woodwork keeps being counted as the shot it always was.
+  const shotTypes: readonly string[] = SHOT_EVENT_TYPES;
+  const onTargetTypes: readonly string[] = ON_TARGET_EVENT_TYPES;
 
   const xg = (clubId: number) =>
     events
