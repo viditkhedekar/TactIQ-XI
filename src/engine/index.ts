@@ -65,4 +65,4 @@ export {
   type ScheduledFixture,
 } from "./schedule";
 
-export { MATCH, FATIGUE, DISCIPLINE } from "./constants";
+export { MATCH, FATIGUE, DISCIPLINE, COLOUR } from "./constants";
