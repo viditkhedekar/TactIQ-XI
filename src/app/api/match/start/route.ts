@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { startMatchday } from "@/lib/matchService";
+import { loadMatchEvents, startMatchday } from "@/lib/matchService";
 import { getCareerId } from "@/lib/session";
 import type { MatchSide } from "@/engine";
 
@@ -40,6 +40,12 @@ export async function POST() {
 
   try {
     const { fixture, state } = await startMatchday(careerId);
+
+    // A match already under way is rejoined rather than restarted, so the
+    // commentary recorded so far comes back with it. Without this, refreshing
+    // the page mid-match leaves the manager staring at an empty ticker.
+    const events = state.minute > 0 ? await loadMatchEvents(fixture.id) : [];
+
     return NextResponse.json({
       fixtureId: fixture.id,
       round: fixture.round,
@@ -47,6 +53,7 @@ export async function POST() {
       homeGoals: state.homeGoals,
       awayGoals: state.awayGoals,
       finished: state.finished,
+      events,
       home: summarise(state.home),
       away: summarise(state.away),
     });
