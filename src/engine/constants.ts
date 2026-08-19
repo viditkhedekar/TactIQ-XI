@@ -216,3 +216,37 @@ export const HOME_ADVANTAGE = {
   /** Away sides are marginally less composed. */
   awayCompositePenalty: 0.99,
 };
+
+/**
+ * Ticker colour.
+ *
+ * None of these affect the simulation. They are drawn from a separate RNG
+ * stream, so turning any of them up changes only how much there is to read and
+ * never the goals, cards or ratings a match produces. Tune them by watching a
+ * match, not by running the season harness.
+ */
+export const COLOUR = {
+  /** Probability per minute of a line about nothing in particular. */
+  generalPlayPerMinute: 0.3,
+  /** Probability per minute of a crowd or momentum note. */
+  atmospherePerMinute: 0.12,
+  /** Probability per minute of the summariser saying something. */
+  punditPerMinute: 0.09,
+  /** Probability per minute of a touchline reaction. */
+  touchlinePerMinute: 0.05,
+  /** Probability per minute of an attack being flagged offside. */
+  offsidePerMinute: 0.055,
+  /** Share of off-target shots relabelled as having hit the frame of the goal. */
+  woodworkShareOfMisses: 0.07,
+  /** Share of blocked shots relabelled as cleared off the line. */
+  lineClearanceShareOfBlocks: 0.12,
+  /** Share of goals and penalties that get a check before they stand. */
+  varCheckShareOfGoals: 0.14,
+  /** Share of corners won that are described rather than only counted. */
+  cornerNarrationShare: 0.55,
+  /**
+   * Colour is suppressed for this many minutes after a goal or a red card. The
+   * ticker should be busy with the aftermath, not with a note about a throw-in.
+   */
+  quietMinutesAfterDrama: 2,
+};
