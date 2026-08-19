@@ -316,6 +316,13 @@ export type MatchState = {
    * serialized before colour existed do not carry it.
    */
   lastDramaMinute?: number;
+  /**
+   * The last few colour lines used, so the ticker does not say the same thing
+   * about the crowd twice in three minutes. Part of the state rather than a
+   * local, because a segment is simulated in pieces and a rewind has to
+   * reproduce the same choices.
+   */
+  recentColour?: string[];
 };
 
 /** Why simulateSegment stopped. The UI uses this to decide whether to prompt. */

@@ -247,6 +247,34 @@ function outfieldOf(side: MatchSide): LineupPlayer[] {
   return side.onPitch.filter((lp) => !lp.sentOff && !lp.player.isGk);
 }
 
+/** How many recent colour lines to remember when avoiding repetition. */
+const COLOUR_MEMORY = 14;
+
+/**
+ * Draws a colour line that has not been used recently.
+ *
+ * Without this the ticker says the same thing about the crowd twice inside
+ * three minutes, which is the fastest way to make generated text feel
+ * generated. Each retry draws again from the same colour generator, so the
+ * result stays deterministic and a rewind reproduces it exactly.
+ */
+function freshLine(
+  state: MatchState,
+  rng: RngState,
+  make: (rng: RngState) => string,
+): string {
+  const recent = (state.recentColour ??= []);
+
+  let line = make(rng);
+  for (let attempt = 0; attempt < 5 && recent.includes(line); attempt++) {
+    line = make(rng);
+  }
+
+  recent.push(line);
+  if (recent.length > COLOUR_MEMORY) recent.splice(0, recent.length - COLOUR_MEMORY);
+  return line;
+}
+
 /** Names for a colour line about one side. Safe on a side with nobody left. */
 function colourNames(
   rng: RngState,
@@ -282,7 +310,7 @@ function emitColour(state: MatchState, emit: Emitter): void {
       clubId: primary.clubId,
       playerId: null,
       secondPlayerId: null,
-      commentary: offsideLine(offsideRng, names),
+      commentary: freshLine(state, offsideRng, (r) => offsideLine(r, names)),
       data: { colour: true },
     });
   }
@@ -295,7 +323,7 @@ function emitColour(state: MatchState, emit: Emitter): void {
       clubId: primary.clubId,
       playerId: null,
       secondPlayerId: null,
-      commentary: generalPlayLine(playRng, names),
+      commentary: freshLine(state, playRng, (r) => generalPlayLine(r, names)),
       data: { colour: true },
     });
   }
@@ -314,10 +342,12 @@ function emitColour(state: MatchState, emit: Emitter): void {
       clubId: null,
       playerId: null,
       secondPlayerId: null,
-      commentary: atmosphereLine(
-        moodRng,
-        { minute: state.minute, goalsFor, goalsAgainst },
-        colourNames(moodRng, leader, chaser),
+      commentary: freshLine(state, moodRng, (r) =>
+        atmosphereLine(
+          r,
+          { minute: state.minute, goalsFor, goalsAgainst },
+          colourNames(r, leader, chaser),
+        ),
       ),
       data: { colour: true },
     });
@@ -330,7 +360,9 @@ function emitColour(state: MatchState, emit: Emitter): void {
       clubId: null,
       playerId: null,
       secondPlayerId: null,
-      commentary: punditLine(punditRng, colourNames(punditRng, primary, secondary)),
+      commentary: freshLine(state, punditRng, (r) =>
+        punditLine(r, colourNames(r, primary, secondary)),
+      ),
       data: { colour: true },
     });
   }
@@ -342,7 +374,9 @@ function emitColour(state: MatchState, emit: Emitter): void {
       clubId: secondary.clubId,
       playerId: null,
       secondPlayerId: null,
-      commentary: touchlineLine(benchRng, colourNames(benchRng, secondary, primary)),
+      commentary: freshLine(state, benchRng, (r) =>
+        touchlineLine(r, colourNames(r, secondary, primary)),
+      ),
       data: { colour: true },
     });
   }

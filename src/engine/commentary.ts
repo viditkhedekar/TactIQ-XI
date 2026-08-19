@@ -450,7 +450,7 @@ const PUNDIT: string[] = [
   "He wants to be closer to the striker. He is picking it up too deep",
   "Somebody on that bench needs to make a decision fairly soon",
   "They are winning the second balls, and that is why they are on top",
-  "The back four have dropped ten yards since the goal, and it is inviting trouble",
+  "The back four keep dropping deeper, and it is inviting trouble",
   "That is a lovely bit of play, whatever comes of it",
   "He has been the best player on the pitch and it has not been close",
   "The press has gone. They are chasing shadows now",
@@ -632,7 +632,10 @@ export function atmosphereKey({ minute, goalsFor, goalsAgainst }: Situation): At
   if (late && margin === 0) return "late_level";
   if (late && margin > 0) return "late_leading";
   if (late) return "late_chasing";
-  if (minute <= 20) return "early";
+  // The opening pool talks about sides feeling their way, which reads wrong
+  // once somebody has scored. A goal ends the early period whatever the clock
+  // says.
+  if (minute <= 20 && margin === 0) return "early";
   if (margin === 0) return "level";
   if (Math.abs(margin) >= 2) return "comfortable";
   return "narrow_lead";
