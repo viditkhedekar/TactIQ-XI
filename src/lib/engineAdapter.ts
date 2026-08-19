@@ -105,16 +105,21 @@ export function toBench(row: CareerTacticsRow): number[] {
   return raw.filter((id): id is number => typeof id === "number");
 }
 
+/**
+ * These take only the fields they read rather than a whole state row, so
+ * callers holding a projection do not have to invent the columns they lack.
+ */
+type Availability = Pick<CareerPlayerStateRow, "injuredUntilRound" | "suspendedUntilRound">;
+type RatingTotals = Pick<CareerPlayerStateRow, "ratingSum" | "ratingCount">;
+
 /** Whether a player can be picked for a given round. */
-export function isAvailable(state: CareerPlayerStateRow, round: number): boolean {
-  if (state.injuredUntilRound !== null && state.injuredUntilRound >= round) return false;
-  if (state.suspendedUntilRound !== null && state.suspendedUntilRound >= round) return false;
-  return true;
+export function isAvailable(state: Availability, round: number): boolean {
+  return unavailableReason(state, round) === null;
 }
 
 /** Why a player cannot be picked, for display next to their name. */
 export function unavailableReason(
-  state: CareerPlayerStateRow,
+  state: Availability,
   round: number,
 ): "injured" | "suspended" | null {
   if (state.injuredUntilRound !== null && state.injuredUntilRound >= round) return "injured";
@@ -123,7 +128,7 @@ export function unavailableReason(
 }
 
 /** Average match rating, or null for a player who has not featured. */
-export function averageRating(state: CareerPlayerStateRow): number | null {
+export function averageRating(state: RatingTotals): number | null {
   if (state.ratingCount === 0) return null;
   return Math.round((state.ratingSum / state.ratingCount) * 10) / 10;
 }

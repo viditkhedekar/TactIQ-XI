@@ -28,26 +28,13 @@ export default async function SquadPage() {
     jersey: player.jersey,
     fitness: state.fitness,
     form: state.form,
-    unavailable: unavailableReason(
-      {
-        ...state,
-        careerId: career.id,
-        playerId: player.id,
-        injuryType: null,
-      },
-      career.currentRound,
-    ),
+    unavailable: unavailableReason(state, career.currentRound),
     injuredUntilRound: state.injuredUntilRound,
     suspendedUntilRound: state.suspendedUntilRound,
     apps: state.apps,
     goals: state.goals,
     assists: state.assists,
-    avgRating: averageRating({
-      ...state,
-      careerId: career.id,
-      playerId: player.id,
-      injuryType: null,
-    }),
+    avgRating: averageRating(state),
     // The handful of attributes worth seeing for every player at a glance.
     pace: Math.round((player.acceleration + player.sprintSpeed) / 2),
     passing: player.shortPassing,
