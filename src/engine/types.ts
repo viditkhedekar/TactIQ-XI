@@ -196,7 +196,45 @@ export type MatchEventType =
   | "sub"
   | "tactic_change"
   | "halftime"
-  | "fulltime";
+  | "fulltime"
+  /* Colour. See COLOUR_EVENT_TYPES below for what these are and are not. */
+  | "woodwork"
+  | "goal_line_clearance"
+  | "offside"
+  | "var_check"
+  | "corner"
+  | "buildup"
+  | "atmosphere"
+  | "pundit";
+
+/**
+ * Events that exist purely to make the ticker read like a broadcast.
+ *
+ * None of them change the score, the statistics or a player's rating, and none
+ * of them consume the match RNG: they are generated from a separate stream
+ * derived from the fixture and the minute (see `colourRng` in match.ts). That
+ * separation is deliberate and load-bearing. The engine is calibrated against
+ * real Premier League rates, and drawing colour from the main generator would
+ * shift every subsequent roll and silently invalidate the whole tuning pass.
+ *
+ * `woodwork` and `goal_line_clearance` are the two that look like exceptions
+ * and are not: they relabel a shot that had already missed or been blocked, so
+ * the outcome was settled before the colour stream was consulted.
+ */
+export const COLOUR_EVENT_TYPES = [
+  "woodwork",
+  "goal_line_clearance",
+  "offside",
+  "var_check",
+  "corner",
+  "buildup",
+  "atmosphere",
+  "pundit",
+] as const satisfies readonly MatchEventType[];
+
+export function isColourEvent(type: MatchEventType): boolean {
+  return (COLOUR_EVENT_TYPES as readonly string[]).includes(type);
+}
 
 /** Where a chance came from. Shapes commentary and the odds of scoring. */
 export type ChanceType =
@@ -226,6 +264,8 @@ export type MatchEvent = {
     awayGoals?: number;
     severity?: InjurySeverity;
     outRounds?: number;
+    /** Set on colour events so consumers can filter them without a type list. */
+    colour?: true;
   } | null;
 };
 
