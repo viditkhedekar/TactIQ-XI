@@ -516,6 +516,10 @@ export function applySubstitution(
   // A keeper may only be replaced by a keeper, and vice versa.
   if (off.player.isGk !== on.player.isGk) return false;
 
+  // A player who has already been substituted off sits on the bench for the
+  // rest of the match and cannot be brought back on.
+  if (on.offAtMinute !== null || on.minutesPlayed > 0) return false;
+
   off.offAtMinute = state.minute;
   on.slot = off.slot;
   on.onAtMinute = state.minute;
