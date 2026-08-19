@@ -44,7 +44,7 @@ export const CHANCES = {
   /** Home side creates slightly more. */
   homeMomentBonus: 0.025,
   /** Attack minus opponent defence, scaled into a moment-rate multiplier. */
-  attackDefenceScale: 40,
+  attackDefenceScale: 48,
   momentRateMin: 0.55,
   momentRateMax: 1.7,
   /** Mentality 1..5 multiplies your own moment rate by these. */

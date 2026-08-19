@@ -75,7 +75,7 @@ export function rollAddedTime(rng: RngState, range: readonly [number, number]): 
  * data, so it is derived from composure: composed players vary less.
  */
 export function performanceVariance(rng: RngState, composure: number): number {
-  const sd = 0.1 - (Math.max(0, Math.min(100, composure)) / 100) * 0.045;
+  const sd = 0.15 - (Math.max(0, Math.min(100, composure)) / 100) * 0.05;
   return Math.max(0.75, Math.min(1.25, randNormal(rng, 1, sd)));
 }
 
