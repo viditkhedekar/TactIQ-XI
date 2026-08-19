@@ -5,7 +5,7 @@
  */
 
 import Link from "next/link";
-import { and, eq, ne, or, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { clubs, fixtures } from "@/db/schema";
 import { requireCareer } from "@/lib/session";
