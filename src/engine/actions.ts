@@ -16,14 +16,14 @@ import type { ChanceType, LineupPlayer, MatchSide, Slot, TeamTactics } from "./t
 
 /** How likely each slot is to be the one taking the chance, by chance type. */
 const SHOOTER_WEIGHTS: Record<ChanceType, Partial<Record<Slot, number>>> = {
-  through_ball: { ST: 3.5, LST: 3, RST: 3, LW: 1.6, RW: 1.6, CAM: 1.4, LCM: 0.4, RCM: 0.4, CM: 0.4 },
-  cross: { ST: 3.2, LST: 2.8, RST: 2.8, CAM: 1.2, LW: 1.0, RW: 1.0, LCB: 0.3, RCB: 0.3, CB: 0.3 },
-  cut_inside: { LW: 3, RW: 3, LM: 1.8, RM: 1.8, CAM: 1.8, ST: 1.2, LST: 1.0, RST: 1.0 },
+  through_ball: { ST: 2.7, LST: 2.4, RST: 2.4, LW: 1.6, RW: 1.6, CAM: 1.4, LCM: 0.4, RCM: 0.4, CM: 0.4 },
+  cross: { ST: 2.5, LST: 2.2, RST: 2.2, CAM: 1.2, LW: 1.0, RW: 1.0, LCB: 0.3, RCB: 0.3, CB: 0.3 },
+  cut_inside: { LW: 2.5, RW: 2.5, LM: 1.8, RM: 1.8, CAM: 1.8, ST: 1.2, LST: 1.0, RST: 1.0 },
   long_shot: {
     LCM: 2.2, RCM: 2.2, CM: 2.2, CAM: 2.4, CDM: 1.4, ST: 1.5, LST: 1.2, RST: 1.2,
     LW: 1.0, RW: 1.0, LM: 0.9, RM: 0.9, LB: 0.3, RB: 0.3,
   },
-  counter: { ST: 3.2, LST: 2.6, RST: 2.6, LW: 2.2, RW: 2.2, CAM: 1.2, LM: 0.8, RM: 0.8 },
+  counter: { ST: 2.5, LST: 2.2, RST: 2.2, LW: 2.2, RW: 2.2, CAM: 1.2, LM: 0.8, RM: 0.8 },
   set_piece: {
     LCB: 2.2, RCB: 2.2, CB: 2.2, ST: 2.4, LST: 2.0, RST: 2.0, CDM: 1.0,
     LCM: 0.8, RCM: 0.8, CM: 0.8, CAM: 0.8, LW: 0.5, RW: 0.5,
@@ -76,9 +76,12 @@ export function pickShooter(rng: RngState, side: MatchSide, type: ChanceType): L
 
   const slotWeights = SHOOTER_WEIGHTS[type];
   const weights = candidates.map((lp) => {
-    const slotWeight = slotWeights[lp.slot] ?? 0.15;
+    const slotWeight = slotWeights[lp.slot] ?? 0.45;
     const quality = Math.max(20, shooterQuality(lp, type));
-    return slotWeight * (quality / 70) * effectiveness(lp);
+    // The exponent softens the quality term deliberately. Weighting linearly
+    // funnels almost every chance to the best forward, and one player ends up
+    // scoring half his club's goals, which no real season looks like.
+    return slotWeight * Math.pow(quality / 70, 0.45) * effectiveness(lp);
   });
 
   return candidates[weightedIndex(rng, weights)];
@@ -219,10 +222,19 @@ export function resolveShot(
   return { outcome: chance(rng, goalChance) ? "goal" : "save", xg };
 }
 
-/** Whether a foul was cynical or dangerous enough to be a booking. */
-export function resolveCard(rng: RngState): "none" | "yellow" | "red" {
+/**
+ * Whether a foul was cynical or dangerous enough to be a booking.
+ *
+ * A player already on a yellow is booked far less often: he pulls out of
+ * challenges, and referees are famously reluctant to send someone off. Without
+ * this, second bookings pile up and red cards run several times real rates.
+ */
+export function resolveCard(rng: RngState, alreadyBooked: boolean): "none" | "yellow" | "red" {
   if (chance(rng, DISCIPLINE.redFromFoul)) return "red";
-  if (chance(rng, DISCIPLINE.yellowFromFoul)) return "yellow";
+  const yellowChance = alreadyBooked
+    ? DISCIPLINE.yellowFromFoul * DISCIPLINE.bookedCautionFactor
+    : DISCIPLINE.yellowFromFoul;
+  if (chance(rng, yellowChance)) return "yellow";
   return "none";
 }
 
