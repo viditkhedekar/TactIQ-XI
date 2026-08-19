@@ -29,7 +29,7 @@ export const POSSESSION = {
   /** Midfield rating difference that maps to a meaningful possession edge. */
   ratingScale: 13,
   /** Extra share for the home side. */
-  homeBonus: 0.02,
+  homeBonus: 0.015,
   /** Tempo and pressing nudge possession away from the balanced split. */
   tempoWeight: 0.012,
   pressingWeight: 0.016,
@@ -40,9 +40,9 @@ export const POSSESSION = {
 
 export const CHANCES = {
   /** Combined chance-creating moments per minute across both teams. */
-  baseMomentsPerMinute: 0.29,
+  baseMomentsPerMinute: 0.205,
   /** Home side creates slightly more. */
-  homeMomentBonus: 0.06,
+  homeMomentBonus: 0.025,
   /** Attack minus opponent defence, scaled into a moment-rate multiplier. */
   attackDefenceScale: 40,
   momentRateMin: 0.55,
@@ -62,12 +62,12 @@ export const CHANCES = {
  * These are the engine's equivalent of xG per shot.
  */
 export const CHANCE_TYPES = {
-  through_ball: { baseXg: 0.26, onTargetBase: 0.46 },
-  cross: { baseXg: 0.13, onTargetBase: 0.38 },
-  cut_inside: { baseXg: 0.15, onTargetBase: 0.42 },
-  long_shot: { baseXg: 0.05, onTargetBase: 0.31 },
-  counter: { baseXg: 0.24, onTargetBase: 0.47 },
-  set_piece: { baseXg: 0.1, onTargetBase: 0.37 },
+  through_ball: { baseXg: 0.26, onTargetBase: 0.39 },
+  cross: { baseXg: 0.13, onTargetBase: 0.32 },
+  cut_inside: { baseXg: 0.15, onTargetBase: 0.36 },
+  long_shot: { baseXg: 0.05, onTargetBase: 0.26 },
+  counter: { baseXg: 0.24, onTargetBase: 0.40 },
+  set_piece: { baseXg: 0.1, onTargetBase: 0.31 },
   penalty: { baseXg: 0.78, onTargetBase: 0.86 },
 } as const;
 
@@ -87,8 +87,8 @@ export const SHOOTING = {
   onTargetMin: 0.2,
   onTargetMax: 0.66,
   /** Keeper rating is subtracted from this before scaling the save. */
-  gkPivot: 104,
-  gkScale: 56,
+  gkPivot: 113,
+  gkScale: 50,
   goalMin: 0.03,
   goalMax: 0.88,
   /** A shot that misses the target is sometimes a block instead. */
@@ -112,8 +112,13 @@ export const DISCIPLINE = {
   /** Aggression above this raises a defender's share of the fouls. */
   aggressionPivot: 60,
   aggressionScale: 220,
-  yellowFromFoul: 0.115,
-  redFromFoul: 0.004,
+  yellowFromFoul: 0.202,
+  /**
+   * How much less likely a booked player is to be booked again. He stops
+   * diving into tackles and the referee looks for a reason not to send him off.
+   */
+  bookedCautionFactor: 0.22,
+  redFromFoul: 0.0022,
   /** Season yellows that trigger a one-match ban. */
   yellowsForBan: 5,
   redCardBanRounds: 1,
@@ -121,7 +126,7 @@ export const DISCIPLINE = {
 
 export const INJURY = {
   /** Base probability per player per minute. */
-  perMinute: 0.00016,
+  perMinute: 0.0001,
   /** Tiredness multiplies risk: a spent player is far likelier to break down. */
   fatigueWeight: 2.2,
   /** Risk rises with age past this point. */
@@ -209,5 +214,5 @@ export const RATING = {
 
 export const HOME_ADVANTAGE = {
   /** Away sides are marginally less composed. */
-  awayCompositePenalty: 0.985,
+  awayCompositePenalty: 0.99,
 };
