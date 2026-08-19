@@ -523,9 +523,13 @@ export function goalSituation(
 }
 
 /**
- * A goal. Situational pools are used about half the time; the rest fall back to
- * the generic and assist pools, so the distinctive lines stay distinctive
- * instead of turning up on every goal of the season.
+ * A goal.
+ *
+ * The situational lines are concatenated onto the base pool rather than chosen
+ * between with a separate roll, so this takes exactly one draw however it is
+ * called. That matters: the match RNG is shared with the simulation, and a
+ * second draw here would shift every roll after it and pull the whole engine
+ * off its calibration. Widening a pool is free; drawing from it twice is not.
  */
 export function goalLine(
   rng: RngState,
@@ -533,12 +537,8 @@ export function goalLine(
   hasAssist: boolean,
   situation?: GoalSituation,
 ): string {
-  const pool =
-    situation && pick(rng, [true, false])
-      ? GOAL_BY_SITUATION[situation]
-      : hasAssist
-        ? GOAL_WITH_ASSIST
-        : GOAL_GENERIC;
+  const base = hasAssist ? GOAL_WITH_ASSIST : GOAL_GENERIC;
+  const pool = situation ? [...base, ...GOAL_BY_SITUATION[situation]] : base;
   return fill(pick(rng, pool), names);
 }
 

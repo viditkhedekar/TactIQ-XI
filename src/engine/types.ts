@@ -208,6 +208,31 @@ export type MatchEventType =
   | "pundit";
 
 /**
+ * Every event that is a shot at goal, and therefore counts in the statistics.
+ *
+ * `woodwork` and `goal_line_clearance` belong here and not with the colour
+ * below. They are ordinary misses and blocks that have been given a better
+ * description after the fact, so they carry real xG and must be counted once,
+ * exactly like the `shot_off` and `shot_blocked` they replaced.
+ */
+export const SHOT_EVENT_TYPES = [
+  "goal",
+  "save",
+  "shot_off",
+  "shot_blocked",
+  "woodwork",
+  "goal_line_clearance",
+  "penalty_missed",
+] as const satisfies readonly MatchEventType[];
+
+export function isShotEvent(type: MatchEventType): boolean {
+  return (SHOT_EVENT_TYPES as readonly string[]).includes(type);
+}
+
+/** Shot events that were on target. Used by the statistics panel. */
+export const ON_TARGET_EVENT_TYPES = ["goal", "save"] as const satisfies readonly MatchEventType[];
+
+/**
  * Events that exist purely to make the ticker read like a broadcast.
  *
  * None of them change the score, the statistics or a player's rating, and none
@@ -217,13 +242,10 @@ export type MatchEventType =
  * real Premier League rates, and drawing colour from the main generator would
  * shift every subsequent roll and silently invalidate the whole tuning pass.
  *
- * `woodwork` and `goal_line_clearance` are the two that look like exceptions
- * and are not: they relabel a shot that had already missed or been blocked, so
- * the outcome was settled before the colour stream was consulted.
+ * Every event listed here carries `data.colour`, so a consumer can drop the
+ * lot without knowing the names.
  */
 export const COLOUR_EVENT_TYPES = [
-  "woodwork",
-  "goal_line_clearance",
   "offside",
   "var_check",
   "corner",
@@ -288,6 +310,12 @@ export type MatchState = {
   awayStats: MatchStats;
   /** Monotonic counter so persisted events keep a stable order. */
   nextSeq: number;
+  /**
+   * Minute of the last goal or red card, so ticker colour can stay out of the
+   * way while the aftermath is still being described. Optional because states
+   * serialized before colour existed do not carry it.
+   */
+  lastDramaMinute?: number;
 };
 
 /** Why simulateSegment stopped. The UI uses this to decide whether to prompt. */

@@ -14,7 +14,7 @@
  * substitutions possible without rewriting history the player already saw.
  */
 
-import { CHANCES, MATCH, SET_PIECES, SHOOTING } from "./constants";
+import { CHANCES, COLOUR, MATCH, SET_PIECES, SHOOTING } from "./constants";
 import {
   isPenaltyFoul,
   pickAssister,
@@ -27,22 +27,33 @@ import {
   resolveShot,
 } from "./actions";
 import {
+  atmosphereLine,
   buildUpLine,
+  cornerLine,
   foulLine,
   fullTimeLine,
+  generalPlayLine,
   goalLine,
+  goalLineClearanceLine,
+  goalSituation,
+  halfTimeAnalysisLine,
   halfTimeLine,
   injuryLine,
   joinPhrases,
   kickoffLine,
+  offsideLine,
   penaltyAwardedLine,
   penaltyMissedLine,
+  punditLine,
   redLine,
   saveLine,
   shotBlockedLine,
   shotOffLine,
   subLine,
   tacticChangeLine,
+  touchlineLine,
+  varCheckLine,
+  woodworkLine,
   yellowLine,
 } from "./commentary";
 import {
@@ -66,7 +77,7 @@ import {
   finalRating,
 } from "./playerRating";
 import { computeTeamRatings, type TeamRatings } from "./ratings";
-import { chance, createRng } from "./rng";
+import { chance, createRng, hash32, pick, type RngState } from "./rng";
 import {
   applyTacticsChange,
   fatigueDrain,
@@ -202,6 +213,141 @@ function makeEmitter(state: MatchState, sink: MatchEvent[]): Emitter {
   };
 }
 
+/* -------------------------------------------------------------------- colour */
+
+/**
+ * A generator for ticker colour, kept entirely apart from the match RNG.
+ *
+ * The engine is calibrated against real Premier League rates by a harness that
+ * plays thousands of matches. Drawing decorative lines from `state.rng` would
+ * shift every roll after them and quietly invalidate that whole tuning pass, so
+ * colour gets its own stream, seeded from facts that replay identically: the
+ * fixture, the half and the minute. Adding or removing colour therefore cannot
+ * change a single goal, card or rating.
+ *
+ * The salt separates categories. Without it, the offside roll and the crowd
+ * roll would be the same number and would always fire together.
+ */
+function colourRng(state: MatchState, salt: string): RngState {
+  return createRng(hash32(`${state.fixtureId}|${state.half}|${state.minute}|${salt}`));
+}
+
+/** Whether the ticker should stay quiet because something just happened. */
+function inDramaWindow(state: MatchState): boolean {
+  const last = state.lastDramaMinute;
+  if (last === undefined) return false;
+  return state.minute - last < COLOUR.quietMinutesAfterDrama;
+}
+
+function markDrama(state: MatchState): void {
+  state.lastDramaMinute = state.minute;
+}
+
+function outfieldOf(side: MatchSide): LineupPlayer[] {
+  return side.onPitch.filter((lp) => !lp.sentOff && !lp.player.isGk);
+}
+
+/** Names for a colour line about one side. Safe on a side with nobody left. */
+function colourNames(
+  rng: RngState,
+  side: MatchSide,
+  opponent: MatchSide,
+): { player: string; second?: string; club: string; opponent: string; keeper?: string } {
+  const outfield = outfieldOf(side);
+  return {
+    player: outfield.length > 0 ? pick(rng, outfield).player.name : "the captain",
+    club: side.clubName,
+    opponent: opponent.clubName,
+    keeper: keeperOf(side)?.player.name,
+  };
+}
+
+/**
+ * Emits the decorative lines for the current minute. Everything here is
+ * optional: skipping it entirely would leave the match identical.
+ */
+function emitColour(state: MatchState, emit: Emitter): void {
+  if (inDramaWindow(state)) return;
+
+  const attackingFirst = chance(colourRng(state, "side"), 0.5);
+  const primary = attackingFirst ? state.home : state.away;
+  const secondary = attackingFirst ? state.away : state.home;
+
+  // An attack that was flagged before it became anything.
+  const offsideRng = colourRng(state, "offside");
+  if (chance(offsideRng, COLOUR.offsidePerMinute)) {
+    const names = colourNames(offsideRng, primary, secondary);
+    emit({
+      type: "offside",
+      clubId: primary.clubId,
+      playerId: null,
+      secondPlayerId: null,
+      commentary: offsideLine(offsideRng, names),
+      data: { colour: true },
+    });
+  }
+
+  const playRng = colourRng(state, "play");
+  if (chance(playRng, COLOUR.generalPlayPerMinute)) {
+    const names = colourNames(playRng, primary, secondary);
+    emit({
+      type: "buildup",
+      clubId: primary.clubId,
+      playerId: null,
+      secondPlayerId: null,
+      commentary: generalPlayLine(playRng, names),
+      data: { colour: true },
+    });
+  }
+
+  const moodRng = colourRng(state, "mood");
+  if (chance(moodRng, COLOUR.atmospherePerMinute)) {
+    // The crowd note is written from the point of view of whoever is ahead, so
+    // "they are hanging on" is never said about the side three goals up.
+    const leader = state.homeGoals >= state.awayGoals ? state.home : state.away;
+    const chaser = leader === state.home ? state.away : state.home;
+    const goalsFor = leader === state.home ? state.homeGoals : state.awayGoals;
+    const goalsAgainst = leader === state.home ? state.awayGoals : state.homeGoals;
+
+    emit({
+      type: "atmosphere",
+      clubId: null,
+      playerId: null,
+      secondPlayerId: null,
+      commentary: atmosphereLine(
+        moodRng,
+        { minute: state.minute, goalsFor, goalsAgainst },
+        colourNames(moodRng, leader, chaser),
+      ),
+      data: { colour: true },
+    });
+  }
+
+  const punditRng = colourRng(state, "pundit");
+  if (chance(punditRng, COLOUR.punditPerMinute)) {
+    emit({
+      type: "pundit",
+      clubId: null,
+      playerId: null,
+      secondPlayerId: null,
+      commentary: punditLine(punditRng, colourNames(punditRng, primary, secondary)),
+      data: { colour: true },
+    });
+  }
+
+  const benchRng = colourRng(state, "bench");
+  if (chance(benchRng, COLOUR.touchlinePerMinute)) {
+    emit({
+      type: "pundit",
+      clubId: secondary.clubId,
+      playerId: null,
+      secondPlayerId: null,
+      commentary: touchlineLine(benchRng, colourNames(benchRng, secondary, primary)),
+      data: { colour: true },
+    });
+  }
+}
+
 function sideOf(state: MatchState, isHome: boolean): MatchSide {
   return isHome ? state.home : state.away;
 }
@@ -269,6 +415,14 @@ function resolveChance(
 
   if (outcome === "goal") {
     stats.shotsOnTarget++;
+
+    // Read before the goal is added, so the line can tell an equaliser from a
+    // fourth in a rout.
+    const situation = goalSituation(
+      isHome ? state.homeGoals : state.awayGoals,
+      isHome ? state.awayGoals : state.homeGoals,
+    );
+
     addGoal(state, isHome);
     creditGoal(shooter);
     if (assister) creditAssist(assister);
@@ -279,7 +433,7 @@ function resolveChance(
       clubId: attacking.clubId,
       playerId: shooter.player.id,
       secondPlayerId: assister?.player.id ?? null,
-      commentary: joinPhrases(buildUp, goalLine(rng, names, Boolean(assister))),
+      commentary: joinPhrases(buildUp, goalLine(rng, names, Boolean(assister), situation)),
       data: {
         chanceType: type,
         xg,
@@ -287,6 +441,22 @@ function resolveChance(
         awayGoals: state.awayGoals,
       },
     });
+
+    // A check that never overturns anything. It is theatre, and the ticker is
+    // better for having it.
+    const varRng = colourRng(state, `var-${shooter.player.id}`);
+    if (chance(varRng, COLOUR.varCheckShareOfGoals)) {
+      emit({
+        type: "var_check",
+        clubId: attacking.clubId,
+        playerId: null,
+        secondPlayerId: null,
+        commentary: varCheckLine(varRng, names),
+        data: { colour: true },
+      });
+    }
+
+    markDrama(state);
     return { scored: true };
   }
 
@@ -335,19 +505,58 @@ function resolveChance(
   }
 
   const blocked = outcome === "blocked";
-  if (chance(rng, SHOOTING.cornerFromShot)) stats.corners++;
+
+  // Rolled on the match RNG, because the corner count is a real statistic.
+  const wonCorner = chance(rng, SHOOTING.cornerFromShot);
+  if (wonCorner) stats.corners++;
+
+  // The shot has already missed. All that is decided here is how it is
+  // described: wide, off the woodwork, or scrambled off the line.
+  const skinRng = colourRng(state, `shot-${state.nextSeq}`);
+  const hitWoodwork = !blocked && chance(skinRng, COLOUR.woodworkShareOfMisses);
+  const clearedOffLine = blocked && chance(skinRng, COLOUR.lineClearanceShareOfBlocks);
+
+  const defenders = outfieldOf(defending);
+  const clearer = clearedOffLine && defenders.length > 0 ? pick(skinRng, defenders) : null;
+
+  // The plain line is drawn first and unconditionally. It is thrown away when
+  // the shot is relabelled, and that waste is the point: the match RNG has to
+  // advance by exactly as much as it did before colour existed, or every roll
+  // downstream shifts and the season calibration goes with it.
+  const plainLine = blocked ? shotBlockedLine(rng, names) : shotOffLine(rng, names);
+
+  const outcomeLine = hitWoodwork
+    ? woodworkLine(skinRng, names)
+    : clearer
+      ? goalLineClearanceLine(skinRng, { ...names, second: clearer.player.name })
+      : plainLine;
 
   emit({
-    type: blocked ? "shot_blocked" : "shot_off",
+    type: hitWoodwork
+      ? "woodwork"
+      : clearer
+        ? "goal_line_clearance"
+        : blocked
+          ? "shot_blocked"
+          : "shot_off",
     clubId: attacking.clubId,
     playerId: shooter.player.id,
-    secondPlayerId: assister?.player.id ?? null,
-    commentary: joinPhrases(
-      buildUp,
-      blocked ? shotBlockedLine(rng, names) : shotOffLine(rng, names),
-    ),
+    secondPlayerId: clearer?.player.id ?? assister?.player.id ?? null,
+    commentary: joinPhrases(buildUp, outcomeLine),
     data: { chanceType: type, xg },
   });
+
+  if (wonCorner && chance(skinRng, COLOUR.cornerNarrationShare)) {
+    emit({
+      type: "corner",
+      clubId: attacking.clubId,
+      playerId: null,
+      secondPlayerId: null,
+      commentary: cornerLine(skinRng, names),
+      data: { colour: true },
+    });
+  }
+
   return { scored: false };
 }
 
@@ -657,6 +866,25 @@ export function simulateSegment(
         data: { homeGoals: state.homeGoals, awayGoals: state.awayGoals },
       });
 
+      // A read on the half, written from the manager's own side where there is
+      // one, so it lands as "you have work to do" rather than a neutral note.
+      const analysisRng = colourRng(state, "halftime");
+      const subject = state.away.isUser ? state.away : state.home;
+      const other = subject === state.home ? state.away : state.home;
+      emit({
+        type: "pundit",
+        clubId: null,
+        playerId: null,
+        secondPlayerId: null,
+        commentary: halfTimeAnalysisLine(
+          analysisRng,
+          colourNames(analysisRng, subject, other),
+          subject === state.home ? state.homeGoals : state.awayGoals,
+          subject === state.home ? state.awayGoals : state.homeGoals,
+        ),
+        data: { colour: true },
+      });
+
       state.half = 2;
       state.minute = 45;
       state.addedTime = 0;
@@ -708,6 +936,7 @@ export function simulateSegment(
       const rate = isHome ? ctx.homeFoulRate : ctx.awayFoulRate;
       if (chance(state.rng, rate)) {
         const { red, penaltyScored } = resolveFoul(state, ctx, isHome, emit);
+        if (red) markDrama(state);
         if (red || penaltyScored) {
           contextDirty = true;
           if (stopAtEvents) stopReason = red ? "red_card" : "goal";
@@ -718,6 +947,11 @@ export function simulateSegment(
     // Fitness and injuries.
     const { injuryForcedSub } = tickFitnessAndInjuries(state, emit);
     if (injuryForcedSub && stopAtEvents) stopReason = "injury";
+
+    // Decoration. Emitted last in the minute so it never gets between an
+    // incident and the description of it, and drawn from its own RNG so it
+    // cannot influence anything above.
+    emitColour(state, emit);
 
     // Periodic rating drift so the numbers reflect how the match is going.
     if (state.minute % 15 === 0) {
