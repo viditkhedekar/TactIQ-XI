@@ -5,7 +5,7 @@ import path from "node:path";
 // simulations and is opt-in via `npm run test:sanity`.
 export default defineConfig({
   resolve: {
-    alias: { "@": path.resolve(__dirname, "src") },
+    alias: { "@": path.resolve(import.meta.dirname, "src") },
   },
   test: {
     include: ["src/**/__tests__/**/*.test.ts"],

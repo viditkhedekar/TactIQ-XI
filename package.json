@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:sanity": "vitest run --config vitest.sanity.config.ts",
+    "test:sanity": "vitest run --config vitest.sanity.config.mts",
     "sim:season": "tsx scripts/sim-season.ts",
     "data:extract": "tsx scripts/extract-pl-csv.ts",
     "db:generate": "drizzle-kit generate",
