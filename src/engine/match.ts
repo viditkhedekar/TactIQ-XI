@@ -368,7 +368,7 @@ function resolveFoul(
     club: offending.clubName,
   };
 
-  const card = resolveCard(rng);
+  const card = resolveCard(rng, fouler.yellowCards > 0);
   let red = false;
 
   if (card === "red") {
