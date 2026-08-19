@@ -185,10 +185,16 @@ type Emitter = (
 
 function makeEmitter(state: MatchState, sink: MatchEvent[]): Emitter {
   return (partial) => {
+    // Stoppage time is reported the way a broadcast reports it: an event three
+    // minutes into first-half added time is 45+3, not 48. Without this the
+    // ticker appears to run backwards when the half ends.
+    const regulation = state.half === 1 ? 45 : MATCH.minutes;
+    const overtime = Math.max(0, state.minute - regulation);
+
     const event: MatchEvent = {
       seq: state.nextSeq++,
-      minute: state.minute,
-      addedTime: state.addedTime,
+      minute: state.minute - overtime,
+      addedTime: overtime,
       ...partial,
     };
     sink.push(event);
@@ -635,9 +641,8 @@ export function simulateSegment(
   while (state.minute < MATCH.minutes + state.addedTime) {
     // Half time.
     if (state.half === 1 && state.minute >= 45 + state.addedTime) {
-      state.half = 2;
-      state.minute = 45;
-      state.addedTime = 0;
+      // Emitted before the clock is wound back, so the whistle is timestamped
+      // at the end of stoppage time rather than at 45 flat.
       emit({
         type: "halftime",
         clubId: null,
@@ -651,6 +656,10 @@ export function simulateSegment(
         ),
         data: { homeGoals: state.homeGoals, awayGoals: state.awayGoals },
       });
+
+      state.half = 2;
+      state.minute = 45;
+      state.addedTime = 0;
       if (stopAtEvents) return { state, events, boundary: "halftime" };
       ctx = buildContext(state);
       continue;
