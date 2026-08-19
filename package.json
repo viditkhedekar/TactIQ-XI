@@ -14,7 +14,7 @@
     "data:extract": "tsx scripts/extract-pl-csv.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:import": "tsx scripts/import-players.ts"
+    "db:import": "tsx --env-file=.env.local scripts/import-players.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",
