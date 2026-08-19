@@ -340,8 +340,22 @@ export type AdvanceResult = {
   finished: boolean;
 };
 
-/** Simulates the next segment of the live match. */
-export async function advanceMatch(careerId: string): Promise<AdvanceResult> {
+/**
+ * Simulates the next segment of the live match.
+ *
+ * `revealedMinute` is how far the manager's ticker has actually got to. The
+ * browser runs behind the server on purpose, requesting the next segment
+ * before it has finished playing the current one so the commentary never
+ * stalls on the network. That means the rewind point cannot simply advance to
+ * the head of the simulation: if it did, a manager pausing at 13' while the
+ * server had already snapshotted 15' could not have their substitution applied
+ * at the minute they were looking at. The snapshot only moves forward once the
+ * manager has caught up to it.
+ */
+export async function advanceMatch(
+  careerId: string,
+  revealedMinute = Number.POSITIVE_INFINITY,
+): Promise<AdvanceResult> {
   const live = await requireLiveMatch(careerId);
   if (live.state.finished) {
     return {
@@ -354,9 +368,13 @@ export async function advanceMatch(careerId: string): Promise<AdvanceResult> {
     };
   }
 
-  // The state at the start of this segment is what a later rewind replays from.
-  const segmentStart: MatchState = JSON.parse(JSON.stringify(live.state));
-  const segmentStartSeq = live.state.nextSeq;
+  // Move the rewind point up to here only if the manager has already watched
+  // this far; otherwise keep the older snapshot, which is still behind them.
+  const canAdvanceSnapshot = revealedMinute >= live.state.minute;
+  const segmentStart: MatchState = canAdvanceSnapshot
+    ? JSON.parse(JSON.stringify(live.state))
+    : live.segmentStart;
+  const segmentStartSeq = canAdvanceSnapshot ? live.state.nextSeq : live.segmentStartSeq;
 
   const { state, events, boundary } = simulateSegment(live.state, { onMinute: aiMinuteHook });
 
@@ -421,15 +439,18 @@ export async function interveneInMatch(
   const [career] = await db.select().from(careers).where(eq(careers.id, careerId)).limit(1);
   const userIsHome = live.state.home.clubId === career.clubId;
 
-  // Rewind to the start of the segment and replay to the pause minute.
+  // Rewind to the start of the segment and replay to the pause minute. The
+  // snapshot is never allowed past what the manager has watched, so this only
+  // clamps in the edge case of a request arriving with a stale minute.
   const rewound: MatchState = JSON.parse(JSON.stringify(live.segmentStart));
+  const effectiveMinute = Math.max(atMinute, rewound.minute);
   const replayed: MatchEvent[] = [];
 
   let guard = 0;
-  while (rewound.minute < atMinute && !rewound.finished && guard++ < 200) {
+  while (rewound.minute < effectiveMinute && !rewound.finished && guard++ < 200) {
     const { events } = simulateSegment(rewound, {
       onMinute: aiMinuteHook,
-      maxMinutes: atMinute - rewound.minute,
+      maxMinutes: effectiveMinute - rewound.minute,
     });
     replayed.push(...events);
   }
