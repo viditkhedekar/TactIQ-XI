@@ -22,9 +22,18 @@ minute by minute, pausing whenever you want to change something.
 - **A live transfer market.** Two windows, bids that take rounds to answer,
   counter offers, wage demands, and rival clubs bidding for your players and
   against you for theirs.
-- **Tactics that matter.** Formation, mentality, pressing, tempo, width and
-  passing directness all feed the simulation directly. A wide, direct side
-  really does create different chances from a narrow, patient one.
+- **Tactics you build rather than pick.** There is no formation dropdown. Drag
+  the eleven wherever you want them and the shape is read back out of the
+  arrangement, so 4-1-2-3 or 3-3-2-2 are as available as anything with a name.
+- **Instructions that all do something.** Mentality, defensive line, pressing,
+  closing down, tackling, tempo, width, passing style, final third, passing
+  focus, keeper distribution and the offside trap, each provably changing the
+  match and each costing something. Eight named styles from Gegenpress to Park
+  The Bus fill them in, and you can edit any of them afterwards.
+- **Set pieces and an armband.** Name your takers and how corners come in, and
+  give the captaincy to someone who steadies the side when you are behind.
+- **Change it all at half time.** Every instruction, the shape, the style, the
+  takers and the captain, all reachable from the pause drawer.
 - **A season that accumulates.** Fitness drains and recovers, injuries and
   suspensions cost you players, form rises and falls, and the table fills in.
 - **Independent careers.** Enter a name, pick a club, and you get your own
@@ -186,6 +195,39 @@ There is no authentication. A career is identified by the name you type, and
 anyone who knows that name can pick it up. That is a deliberate choice for a
 game played among friends, and it should not be mistaken for a security
 boundary.
+
+## Tactics
+
+**The shape is not chosen, it is arranged.** A formation is a description of
+where people are standing, not a thing you pick and then obey, so the board
+works that way round: drag a player, he snaps to the nearest recognised role,
+and `describeShape` reads the arrangement back as "4-2-3-1" or "3-3-2-2" by
+finding the bands rather than assuming them. Only the role reaches the
+simulation; the coordinates exist so the board redraws as you left it and so two
+players in the same kind of role can stand in different places. There are more
+anchors than roles for exactly that reason.
+
+**Every instruction is a trade, and that is enforced by test.** This is the part
+that took the work. The first version made a high line and hard closing down
+into flat defensive bonuses, which sounds reasonable and was badly wrong: the AI
+picks its settings from how strong it expects to be, so favourites stacked an
+advantage on every axis at once and the division pulled apart. Home wins went
+from 45.2% to 47.5% and the leading scorer from 28 goals to 32.
+
+The fix was to make each instruction cost something real, and then to measure
+it. `src/engine/__tests__/tacticsSystem.test.ts` plays a few hundred matches per
+instruction with two identical sides and asserts that none of them is worth more
+than about a sixth of a goal a game against neutral, while separately asserting
+that each one visibly changes the match. Shooting on sight produces around 15
+shots a game against 11 for working the ball into the box, for the same net
+result. Getting stuck in wins more of the ball and collects half again as many
+cards. The offside trap catches a fifth of the balls played in behind and hands
+over a clear sight of goal when it does not, which at one point was a catch rate
+of 0.55 and worth over half a goal a game to anyone who ticked the box.
+
+Every new instruction is neutral at its default, so a squad with nothing set
+plays the engine exactly as it was calibrated. Naming a set piece taker or
+picking a corner delivery draws nothing from the RNG at all.
 
 ## Transfers, training and the match report
 
