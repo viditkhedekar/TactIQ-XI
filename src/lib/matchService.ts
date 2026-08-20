@@ -175,8 +175,9 @@ function buildSide(
 async function loadEngineSquads(
   careerId: string,
   clubIds: number[],
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db = db,
 ): Promise<Map<number, SquadEntry[]>> {
-  const squads = await loadSquads(careerId, clubIds);
+  const squads = await loadSquads(careerId, clubIds, tx);
   const out = new Map<number, SquadEntry[]>();
 
   for (const [clubId, members] of squads) {
@@ -715,7 +716,7 @@ async function playCupRound(
   );
 
   if (needed.length > 0) {
-    const extra = await loadEngineSquads(careerId, needed);
+    const extra = await loadEngineSquads(careerId, needed, tx);
     for (const [clubId, squad] of extra) squads.set(clubId, squad);
   }
 
@@ -866,13 +867,19 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
   // re-simulating the whole match.
   const report = analyseMatch(state, userEvents, career.clubId);
 
-  // The other nine fixtures of the round.
+  // The other nine fixtures of the round. Season and competition both have to
+  // be pinned: round numbers repeat every season, and a cup tie sits in the
+  // same round as the league games. Without both filters this would pull in
+  // fixtures from other seasons of the save and any cup tie scheduled this
+  // week, and simulate them a second time as if they were league matches.
   const otherFixtures = await db
     .select()
     .from(fixtures)
     .where(
       and(
         eq(fixtures.careerId, careerId),
+        eq(fixtures.season, career.season),
+        eq(fixtures.competition, "league"),
         eq(fixtures.round, round),
         ne(fixtures.id, live.fixtureId),
       ),
