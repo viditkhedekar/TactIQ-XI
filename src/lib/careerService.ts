@@ -342,8 +342,9 @@ export const loadSquad = cache(async (careerId: string, clubId: number): Promise
 export async function loadSquads(
   careerId: string,
   clubIds: number[],
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db = db,
 ): Promise<Map<number, SquadMember[]>> {
-  const rows = await db
+  const rows = await tx
     .select({ player: players, state: careerPlayerState })
     .from(players)
     .innerJoin(
