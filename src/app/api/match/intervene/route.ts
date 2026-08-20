@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { interveneInMatch } from "@/lib/matchService";
 import { getCareerId } from "@/lib/session";
 import { firstError, interventionSchema } from "@/lib/validation";
-import type { TeamTactics } from "@/engine";
+import type { PitchPlacement, TeamTactics } from "@/engine";
 
 /** Applies the manager's substitutions and instructions at a pause point. */
 export async function POST(request: Request) {
@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     const result = await interveneInMatch(careerId, parsed.data.atMinute, {
       tactics: parsed.data.tactics as Partial<TeamTactics> | undefined,
       subs: parsed.data.subs,
+      placements: parsed.data.placements as PitchPlacement[] | undefined,
     });
     return NextResponse.json(result);
   } catch (error) {
