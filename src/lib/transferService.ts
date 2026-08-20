@@ -634,8 +634,14 @@ export async function processTransferRound(
 ): Promise<void> {
   const window = transferWindow(round);
 
+  // Offers are answered first, whether or not the window is still open. A bid
+  // placed on the last day of the window is answered the round after, by which
+  // point the window has shut; refusing to settle it would mean no deadline day
+  // deal could ever go through.
+  await respondToDueOffers(tx, careerId, userClubId, round);
+
   if (!window.open) {
-    // Deadline day has been and gone. Anything still outstanding lapses.
+    // Anything that has still not resolved lapses with the window.
     await tx
       .update(transferOffers)
       .set({ status: "expired", responseNote: "The window shut before this was settled" })
@@ -648,7 +654,6 @@ export async function processTransferRound(
     return;
   }
 
-  await respondToDueOffers(tx, careerId, userClubId, round);
   await runAiMarket(tx, careerId, userClubId, round);
 }
 
