@@ -30,7 +30,14 @@ import {
   respondToIncoming,
   withdrawOffer,
 } from "@/lib/transferService";
-import { isTrainingFocus, type Slot, type TrainingFocus, type TrainingIntensity } from "@/engine";
+import {
+  isTrainingFocus,
+  normaliseTactics,
+  type PitchPlacement,
+  type TeamTactics,
+  type TrainingFocus,
+  type TrainingIntensity,
+} from "@/engine";
 
 export type ActionState = { error?: string } | null;
 
@@ -84,19 +91,40 @@ export async function saveTacticsAction(
   const parsed = tacticsSchema.safeParse(payload);
   if (!parsed.success) return { error: firstError(parsed.error) };
 
+  const lineup = parsed.data.lineup as PitchPlacement[];
+
   const problems = await validateLineup(
     career.id,
     career.clubId,
     career.currentRound,
-    parsed.data.lineup as { playerId: number; slot: Slot }[],
+    lineup,
     parsed.data.bench,
   );
   if (problems.length > 0) return { error: problems[0] };
 
-  await saveTactics(career.id, {
-    ...parsed.data,
-    lineup: parsed.data.lineup as { playerId: number; slot: Slot }[],
-  });
+  // The captain has to be someone the manager actually has, and the same goes
+  // for every set piece taker, or a crafted payload could hand the armband to
+  // an opposition player.
+  const squadIds = new Set((await loadSquad(career.id, career.clubId)).map((m) => m.player.id));
+  const ours = (id: number | null) => (id !== null && squadIds.has(id) ? id : null);
+
+  await saveTactics(
+    career.id,
+    normaliseTactics({
+      ...parsed.data,
+      formation: parsed.data.formation as TeamTactics["formation"],
+      captainId: ours(parsed.data.captainId),
+      setPieces: {
+        corners: ours(parsed.data.setPieces.corners),
+        freeKicks: ours(parsed.data.setPieces.freeKicks),
+        penalties: ours(parsed.data.setPieces.penalties),
+        throwIns: ours(parsed.data.setPieces.throwIns),
+        cornerDelivery: parsed.data.setPieces.cornerDelivery,
+      },
+    }),
+    lineup,
+    parsed.data.bench,
+  );
 
   revalidatePath("/career/tactics");
   revalidatePath("/career/squad");
