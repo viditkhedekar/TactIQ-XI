@@ -684,6 +684,12 @@ export function tacticChangeLine(club: string): string {
  * rather than two disconnected fragments.
  */
 export function joinPhrases(buildUp: string, outcome: string): string {
-  const connector = outcome.startsWith("and ") || outcome.startsWith("but ") ? ", " : ". ";
-  return `${buildUp}${connector}${outcome}`;
+  // Outcome lines are written to follow a comma ("and it is in the net"), so
+  // most start lowercase. Where the connector is a full stop instead, the first
+  // letter has to be lifted, or the ticker prints sentences like "he gets his
+  // head to it. the keeper does well".
+  if (outcome.startsWith("and ") || outcome.startsWith("but ")) {
+    return `${buildUp}, ${outcome}`;
+  }
+  return `${buildUp}. ${outcome.charAt(0).toUpperCase()}${outcome.slice(1)}`;
 }
