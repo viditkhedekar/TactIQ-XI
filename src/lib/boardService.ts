@@ -17,6 +17,7 @@ import {
   fixtures,
   jobOffers,
   players,
+  seasonHistory,
   transferHistory,
   type BoardRequestRow,
   type CareerRow,
@@ -185,7 +186,7 @@ export async function updateBoardConfidence(
     })
     .where(eq(careers.id, career.id));
 
-  if (sacked) await createJobOffers(tx, career);
+  if (sacked) await createJobOffers(tx, career, career.season);
 
   return { confidence: view.confidence, sacked };
 }
@@ -399,13 +400,42 @@ export async function loadRequests(
  * clubs below his old one, which is what makes a sacking a real setback rather
  * than a sideways move.
  */
-async function createJobOffers(tx: Tx, career: CareerRow): Promise<void> {
-  const table = await buildLeagueTable(career.id, career.season);
+async function createJobOffers(
+  tx: Tx,
+  career: CareerRow,
+  judgeSeason: number,
+): Promise<void> {
+  /*
+   * `judgeSeason` is the season whose table says who is struggling, and it is
+   * not always `career.season`. A relegation sacking happens after the rollover
+   * has already moved the save on, so reading the current season there would
+   * build a table of a competition nobody has played yet: every club level on
+   * nothing, sorted alphabetically, and the "strugglers" coming out as whoever
+   * is late in the alphabet. Which is how a manager who had just gone down was
+   * offered the Manchester City job.
+   */
+  const finished = await tx
+    .select({ clubId: seasonHistory.clubId, position: seasonHistory.position })
+    .from(seasonHistory)
+    .where(
+      and(eq(seasonHistory.careerId, career.id), eq(seasonHistory.season, judgeSeason)),
+    );
 
-  // Clubs in the bottom half, excluding the one that just sacked him.
-  const candidates = table
-    .filter((row) => row.clubId !== career.clubId && row.position >= Math.floor(table.length / 2))
-    .slice(-8);
+  const table =
+    finished.length > 0
+      ? finished.sort((a, b) => a.position - b.position)
+      : (await buildLeagueTable(career.id, judgeSeason)).map((row) => ({
+          clubId: row.clubId,
+          position: row.position,
+        }));
+
+  if (table.length === 0) return;
+
+  // Clubs in the bottom half, excluding the one that just sacked him. A manager
+  // out of work does not walk into a job at the top of the division.
+  const candidates = table.filter(
+    (row) => row.clubId !== career.clubId && row.position >= Math.floor(table.length / 2),
+  );
 
   const clubRows = await tx
     .select({ id: clubs.id, name: clubs.name })
@@ -414,6 +444,8 @@ async function createJobOffers(tx: Tx, career: CareerRow): Promise<void> {
   const nameOf = new Map(clubRows.map((c) => [c.id, c.name]));
 
   // Three, so there is a choice to make without it being a menu.
+  // The three best of the strugglers, so the choice is between real clubs
+  // rather than the three worst sides in the country.
   const chosen = candidates.slice(0, 3);
   if (chosen.length === 0) return;
 
@@ -447,7 +479,8 @@ export async function sackForRelegation(careerId: string): Promise<void> {
       .set({ phase: "sacked", underPressure: true, updatedAt: new Date() })
       .where(eq(careers.id, careerId));
 
-    await createJobOffers(tx, career);
+    // The season just gone, not the one the rollover has already started.
+    await createJobOffers(tx, career, career.season - 1);
   });
 }
 
