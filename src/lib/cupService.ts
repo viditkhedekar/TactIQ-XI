@@ -152,8 +152,9 @@ export async function cupProgressFor(
   careerId: string,
   season: number,
   clubId: number,
+  tx: Tx | typeof db = db,
 ): Promise<CupProgress> {
-  const ties = await db
+  const ties = await tx
     .select()
     .from(fixtures)
     .where(
@@ -178,7 +179,7 @@ export async function cupProgressFor(
     };
   }
 
-  const division = await loadDivision(careerId, season);
+  const division = await loadDivision(careerId, season, tx);
 
   let roundsWon = 0;
   let giantKilled = false;
