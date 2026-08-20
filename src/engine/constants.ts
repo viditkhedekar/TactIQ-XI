@@ -102,6 +102,121 @@ export const SET_PIECES = {
   penaltyFromFoul: 0.028,
   /** Corners are tracked for the stats panel and feed set-piece chances. */
   cornerToChance: 0.12,
+  /**
+   * How a corner delivery reshapes the chance it creates. `xg` scales the
+   * quality of the opportunity, `aerial` how much the finish leans on heading
+   * rather than composure, and `assist` how likely there is a clear provider.
+   */
+  cornerDelivery: {
+    near_post: { xg: 1.08, aerial: 1.15, assist: 0.95 },
+    far_post: { xg: 1.02, aerial: 1.25, assist: 1.0 },
+    short: { xg: 0.92, aerial: 0.55, assist: 1.15 },
+    whipped: { xg: 1.12, aerial: 1.05, assist: 0.9 },
+  } as const,
+};
+
+/**
+ * The instructions added on top of the original five.
+ *
+ * Every table is neutral at index 2, which is the default of 3. That is not a
+ * convenience: it is what guarantees a squad with no instructions set plays
+ * exactly as the engine did before any of this existed, so the season
+ * calibration in the README still describes the game.
+ */
+export const SHAPE = {
+  /**
+   * Defensive line, 1 deep to 5 squeezed up.
+   *
+   * A high line compresses the pitch and wins the ball higher, which creates
+   * more, but it leaves grass in behind for anyone quick. Both sides of that
+   * trade are here, and they are meant to roughly cancel at a neutral setting.
+   */
+  lineCompressionBonus: [0.94, 0.97, 1.0, 1.04, 1.08] as const,
+  /** How much a high line multiplies the opponent's balls in behind. */
+  lineThroughBallRisk: [0.72, 0.86, 1.0, 1.2, 1.45] as const,
+  /** ...and their counter attacks. */
+  lineCounterRisk: [0.78, 0.89, 1.0, 1.15, 1.34] as const,
+  /** A deep line invites shots from distance instead. */
+  lineLongShotConceded: [1.4, 1.18, 1.0, 0.88, 0.78] as const,
+
+  /**
+   * Closing down, 1 hold shape to 5 engage everywhere.
+   *
+   * Distinct from pressing, which is about intensity. This is about whether the
+   * side leaves its shape to go to the ball, so it buys defensive pressure at
+   * the cost of the gaps that opens.
+   */
+  closingDefenceBonus: [0.95, 0.975, 1.0, 1.03, 1.06] as const,
+  closingLongShotConceded: [1.35, 1.16, 1.0, 0.86, 0.74] as const,
+  closingThroughBallConceded: [0.82, 0.91, 1.0, 1.12, 1.26] as const,
+  closingDrainMultiplier: [0.92, 0.96, 1.0, 1.06, 1.13] as const,
+
+  /**
+   * Tackling, 1 stay on your feet to 5 get stuck in.
+   *
+   * Wins more of the ball and costs more cards. The card term is deliberately
+   * steeper than the defensive one, because a side that dives into everything
+   * should finish matches with ten men often enough to regret it.
+   */
+  tacklingDefenceBonus: [0.96, 0.98, 1.0, 1.025, 1.05] as const,
+  tacklingFoulMultiplier: [0.78, 0.89, 1.0, 1.15, 1.34] as const,
+  tacklingCardMultiplier: [0.8, 0.9, 1.0, 1.2, 1.45] as const,
+
+  /**
+   * The offside trap. Stepping up catches attackers out, and when it is beaten
+   * the man is clean through. Only worth anything with a high line, which is
+   * why the effect is scaled by it.
+   */
+  offsideTrapCatchRate: 0.55,
+  offsideTrapBeatenXgBonus: 1.35,
+  offsideTrapLineScaling: [0.4, 0.7, 1.0, 1.3, 1.6] as const,
+
+  /** Working the ball into the box against shooting on sight. */
+  finalThird: {
+    work_ball: { long_shot: 0.55, through_ball: 1.2, cut_inside: 1.15, cross: 1.05, xg: 1.08 },
+    mixed: { long_shot: 1.0, through_ball: 1.0, cut_inside: 1.0, cross: 1.0, xg: 1.0 },
+    shoot_early: { long_shot: 2.1, through_ball: 0.85, cut_inside: 0.9, cross: 0.95, xg: 0.9 },
+  } as const,
+
+  /**
+   * Which channel the side works. Focusing one flank makes the chances that do
+   * come from it better, at the cost of the rest of the pitch: predictability
+   * has to have a price or focusing would be free.
+   */
+  passingFocus: {
+    left: { cross: 1.3, cut_inside: 1.1, through_ball: 0.9, focusPenalty: 0.94 },
+    right: { cross: 1.3, cut_inside: 1.1, through_ball: 0.9, focusPenalty: 0.94 },
+    centre: { cross: 0.7, cut_inside: 1.15, through_ball: 1.3, focusPenalty: 0.94 },
+    mixed: { cross: 1.0, cut_inside: 1.0, through_ball: 1.0, focusPenalty: 1.0 },
+  } as const,
+
+  /**
+   * What the keeper does with it. Playing out keeps the ball and invites the
+   * press; going long concedes possession and skips the midfield entirely.
+   */
+  keeperDistribution: {
+    short: { possession: 0.028, counterConceded: 1.22, ownCounter: 0.85, directness: -0.35 },
+    mixed: { possession: 0, counterConceded: 1.0, ownCounter: 1.0, directness: 0 },
+    long: { possession: -0.032, counterConceded: 0.84, ownCounter: 1.25, directness: 0.4 },
+  } as const,
+};
+
+/**
+ * The captain.
+ *
+ * Small on purpose. A captain who swung matches would be a hidden fudge, and a
+ * captain who did nothing would be a lie on the team sheet. This is a nudge to
+ * the ratings around him, biggest when the side is behind and needs settling.
+ */
+export const CAPTAIN = {
+  /** Composure above this starts to help. Below it, the armband is neutral. */
+  composurePivot: 70,
+  /** Largest effectiveness bonus a truly commanding captain gives teammates. */
+  maxTeamBonus: 0.02,
+  /** Extra steadying applied while the side is losing. */
+  behindMultiplier: 1.6,
+  /** Rating drift the captain himself absorbs for the team's performance. */
+  ownDriftShare: 1.25,
 };
 
 export const DISCIPLINE = {
