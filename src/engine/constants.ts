@@ -146,10 +146,10 @@ export const SHAPE = {
    * side leaves its shape to go to the ball, so it buys defensive pressure at
    * the cost of the gaps that opens.
    */
-  closingDefenceBonus: [0.95, 0.975, 1.0, 1.03, 1.06] as const,
+  closingDefenceBonus: [0.975, 0.99, 1.0, 1.018, 1.035] as const,
   closingLongShotConceded: [1.35, 1.16, 1.0, 0.86, 0.74] as const,
-  closingThroughBallConceded: [0.82, 0.91, 1.0, 1.12, 1.26] as const,
-  closingDrainMultiplier: [0.92, 0.96, 1.0, 1.06, 1.13] as const,
+  closingThroughBallConceded: [0.84, 0.92, 1.0, 1.09, 1.18] as const,
+  closingDrainMultiplier: [0.94, 0.97, 1.0, 1.04, 1.09] as const,
 
   /**
    * Tackling, 1 stay on your feet to 5 get stuck in.
@@ -166,27 +166,44 @@ export const SHAPE = {
    * The offside trap. Stepping up catches attackers out, and when it is beaten
    * the man is clean through. Only worth anything with a high line, which is
    * why the effect is scaled by it.
+   *
+   * The catch rate is low on purpose. An earlier value of 0.55 caught nearly
+   * nine in ten balls played in behind and made the trap worth more than half a
+   * goal a game, which is not a tactic, it is a cheat code. A real trap catches
+   * a fraction of the runs and gives up a clear sight of goal when it does not.
    */
-  offsideTrapCatchRate: 0.55,
-  offsideTrapBeatenXgBonus: 1.35,
+  offsideTrapCatchRate: 0.21,
+  offsideTrapBeatenXgBonus: 1.32,
   offsideTrapLineScaling: [0.4, 0.7, 1.0, 1.3, 1.6] as const,
 
-  /** Working the ball into the box against shooting on sight. */
+  /**
+   * Working the ball into the box against shooting on sight.
+   *
+   * `moments` is the part that makes this a decision rather than a penalty.
+   * Chance type alone only changes how good a chance is, so without it,
+   * shooting early was pure downside: the same number of chances, all worse.
+   * Having a go from range means more attempts, and working an opening means
+   * fewer and better. That is the actual trade a manager is making.
+   */
   finalThird: {
-    work_ball: { long_shot: 0.55, through_ball: 1.2, cut_inside: 1.15, cross: 1.05, xg: 1.08 },
-    mixed: { long_shot: 1.0, through_ball: 1.0, cut_inside: 1.0, cross: 1.0, xg: 1.0 },
-    shoot_early: { long_shot: 2.1, through_ball: 0.85, cut_inside: 0.9, cross: 0.95, xg: 0.9 },
+    work_ball: { long_shot: 0.5, through_ball: 1.1, cut_inside: 1.1, cross: 0.95, xg: 1.04, moments: 0.9 },
+    mixed: { long_shot: 1.0, through_ball: 1.0, cut_inside: 1.0, cross: 1.0, xg: 1.0, moments: 1.0 },
+    shoot_early: { long_shot: 2.0, through_ball: 0.92, cut_inside: 0.96, cross: 1.0, xg: 1.0, moments: 1.24 },
   } as const,
 
   /**
-   * Which channel the side works. Focusing one flank makes the chances that do
-   * come from it better, at the cost of the rest of the pitch: predictability
-   * has to have a price or focusing would be free.
+   * Which channel the side works.
+   *
+   * Deliberately free of a flat penalty. Focusing is not worse than not
+   * focusing, it is narrower: it amplifies whichever flank the side is already
+   * strong on, so it pays for a team with wingers and costs one without. An
+   * earlier flat cost made every focus strictly worse than mixed, which meant
+   * the option existed only to be avoided.
    */
   passingFocus: {
-    left: { cross: 1.3, cut_inside: 1.1, through_ball: 0.9, focusPenalty: 0.94 },
-    right: { cross: 1.3, cut_inside: 1.1, through_ball: 0.9, focusPenalty: 0.94 },
-    centre: { cross: 0.7, cut_inside: 1.15, through_ball: 1.3, focusPenalty: 0.94 },
+    left: { cross: 1.28, cut_inside: 1.08, through_ball: 0.92, focusPenalty: 1.0 },
+    right: { cross: 1.28, cut_inside: 1.08, through_ball: 0.92, focusPenalty: 1.0 },
+    centre: { cross: 0.74, cut_inside: 1.12, through_ball: 1.26, focusPenalty: 1.0 },
     mixed: { cross: 1.0, cut_inside: 1.0, through_ball: 1.0, focusPenalty: 1.0 },
   } as const,
 
@@ -195,9 +212,9 @@ export const SHAPE = {
    * press; going long concedes possession and skips the midfield entirely.
    */
   keeperDistribution: {
-    short: { possession: 0.028, counterConceded: 1.22, ownCounter: 0.85, directness: -0.35 },
+    short: { possession: 0.016, counterConceded: 1.5, ownCounter: 0.9, directness: -0.35 },
     mixed: { possession: 0, counterConceded: 1.0, ownCounter: 1.0, directness: 0 },
-    long: { possession: -0.032, counterConceded: 0.84, ownCounter: 1.25, directness: 0.4 },
+    long: { possession: -0.012, counterConceded: 0.7, ownCounter: 1.9, directness: 0.4 },
   } as const,
 };
 
