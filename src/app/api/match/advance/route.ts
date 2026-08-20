@@ -28,6 +28,7 @@ export async function POST(request: Request) {
   try {
     return NextResponse.json(await advanceMatch(careerId, revealedMinute ?? 0));
   } catch (error) {
+    console.error("POST /api/match/advance failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not advance the match" },
       { status: 400 },
