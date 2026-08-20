@@ -154,13 +154,51 @@ export function pickFouled(rng: RngState, side: MatchSide): LineupPlayer | null 
   return candidates[weightedIndex(rng, weights)];
 }
 
-/** The most reliable penalty taker on the pitch. */
+/**
+ * Whoever the manager nominated for a set piece, if he is still on the pitch.
+ *
+ * Falls back to null rather than throwing, because the named taker being
+ * substituted off or sent off is the normal case rather than an error, and the
+ * caller then picks the best man available.
+ */
+function nominated(side: MatchSide, playerId: number | null): LineupPlayer | null {
+  if (playerId === null) return null;
+  return side.onPitch.find((lp) => lp.player.id === playerId && !lp.sentOff) ?? null;
+}
+
+/** The penalty taker: the nominated one, or the most reliable man on the pitch. */
 export function pickPenaltyTaker(side: MatchSide): LineupPlayer | null {
+  const named = nominated(side, side.tactics.setPieces.penalties);
+  if (named) return named;
+
   const candidates = availableOutfield(side);
   if (candidates.length === 0) return null;
   return candidates.reduce((best, lp) =>
     finishingScore(lp.player, "penalty") > finishingScore(best.player, "penalty") ? lp : best,
   );
+}
+
+/**
+ * Who delivers a set piece.
+ *
+ * Free kicks and corners are separately nominated because they are different
+ * skills, and a side often has one man for each. With nobody named, the best
+ * dead ball striker on the pitch takes it.
+ */
+export function pickSetPieceTaker(
+  side: MatchSide,
+  kind: "corners" | "freeKicks",
+): LineupPlayer | null {
+  const named = nominated(side, side.tactics.setPieces[kind]);
+  if (named) return named;
+
+  const candidates = availableOutfield(side);
+  if (candidates.length === 0) return null;
+
+  const quality = (lp: LineupPlayer) =>
+    lp.player.fkAccuracy * 0.4 + lp.player.crossing * 0.35 + lp.player.curve * 0.25;
+
+  return candidates.reduce((best, lp) => (quality(lp) > quality(best) ? lp : best));
 }
 
 /** Picks the kind of chance a moment turns into. */
