@@ -14,7 +14,7 @@
  * substitutions possible without rewriting history the player already saw.
  */
 
-import { CHANCES, COLOUR, MATCH, SET_PIECES, SHOOTING } from "./constants";
+import { CHANCES, COLOUR, MATCH, SET_PIECES, SHAPE, SHOOTING } from "./constants";
 import {
   isPenaltyFoul,
   pickAssister,
@@ -80,9 +80,12 @@ import { computeTeamRatings, type TeamRatings } from "./ratings";
 import { chance, createRng, hash32, pick, type RngState } from "./rng";
 import {
   applyTacticsChange,
+  chanceQualityMultiplier,
+  defensiveDiscipline,
   fatigueDrain,
   foulRate,
   momentRate,
+  offsideTrapChance,
   possessionShare,
   turnoverChance,
 } from "./tactics";
@@ -418,11 +421,45 @@ function resolveChance(
   const stats = statsOf(state, isHome);
 
   const type =
-    forcedType ?? pickChanceType(rng, attacking.tactics, attackRatings, defendRatings);
+    forcedType ??
+    pickChanceType(rng, attacking.tactics, attackRatings, defendRatings, defending.tactics);
 
   const shooter =
     type === "penalty" ? pickPenaltyTaker(attacking) : pickShooter(rng, attacking, type);
   if (!shooter) return { scored: false };
+
+  /**
+   * The offside trap.
+   *
+   * Only a ball played in behind can be caught, so only those two chance types
+   * are exposed to it. The roll is skipped entirely when the trap is off, which
+   * keeps the RNG stream identical for any side not using it and is what lets
+   * this be added without moving the engine's calibration.
+   */
+  let trapBeatenBonus = 1;
+  const trapRate = type === "through_ball" || type === "counter" ? offsideTrapChance(defending.tactics) : 0;
+
+  if (trapRate > 0) {
+    if (chance(rng, trapRate)) {
+      // Caught. The attack is over before it becomes a shot, which is the whole
+      // point of stepping up, and it costs the defending side nothing.
+      emit({
+        type: "offside",
+        clubId: attacking.clubId,
+        playerId: shooter.player.id,
+        secondPlayerId: null,
+        commentary: offsideLine(rng, {
+          player: shooter.player.name,
+          club: attacking.clubName,
+          opponent: defending.clubName,
+        }),
+        data: null,
+      });
+      return { scored: false };
+    }
+    // Beaten. Everyone has stepped up, so the man is clean through.
+    trapBeatenBonus = SHAPE.offsideTrapBeatenXgBonus;
+  }
 
   const assister = pickAssister(rng, attacking, shooter, type);
   const keeper = keeperOf(defending);
@@ -437,8 +474,11 @@ function resolveChance(
     rng,
     shooter,
     type,
-    defendRatings.defence,
+    // Getting stuck in makes a side harder to play through, and pays for it in
+    // fouls and cards rather than being free.
+    defendRatings.defence * defensiveDiscipline(defending.tactics),
     defendRatings.goalkeeping,
+    chanceQualityMultiplier(attacking.tactics) * trapBeatenBonus,
   );
 
   stats.shots++;
