@@ -14,7 +14,7 @@
 import { MATCH } from "./constants";
 import { applySubstitution, type Emitter } from "./match";
 import { effectiveness, positionFit, squadStrength } from "./ratings";
-import { FORMATIONS } from "./tactics";
+import { DEFAULT_SET_PIECES, FORMATIONS } from "./tactics";
 import type {
   EnginePlayer,
   FormationName,
@@ -197,6 +197,27 @@ export function chooseTactics(
   const tempo: Instruction = edge < -4 ? 4 : 3;
   const width: Instruction = edge > 4 ? 4 : edge < -4 ? 2 : 3;
 
+  // The rest of the plan follows the same logic. A side that expects to be on
+  // top squeezes up and engages; one expecting a long afternoon drops off and
+  // protects the space behind. Without this the AI would leave every new
+  // instruction at neutral and the manager would be the only club in the
+  // division actually using them.
+  const defensiveLine: Instruction = edge > 6 ? 4 : edge > -2 ? 3 : edge > -10 ? 2 : 1;
+  const closingDown: Instruction = avgStamina > 72 && edge > -4 ? 4 : edge < -8 ? 2 : 3;
+
+  // Chasing a game you are not equipped for means more challenges and more
+  // cards, which is exactly what a stretched underdog looks like.
+  const tackling: Instruction = edge < -6 ? 4 : edge > 8 ? 2 : 3;
+
+  // Only a side confident of holding a high line has any business stepping up.
+  const offsideTrap = defensiveLine >= 4 && avgStamina > 70;
+
+  const finalThird: TeamTactics["finalThird"] =
+    edge > 5 ? "work_ball" : edge < -7 ? "shoot_early" : "mixed";
+
+  const keeperDistribution: TeamTactics["keeperDistribution"] =
+    edge > 4 ? "short" : edge < -6 ? "long" : "mixed";
+
   return {
     formation: formation ?? chooseFormation(ownPlayers),
     mentality,
@@ -204,6 +225,17 @@ export function chooseTactics(
     tempo,
     width,
     directness,
+    defensiveLine,
+    closingDown,
+    tackling,
+    offsideTrap,
+    finalThird,
+    // The AI has no reason to make itself predictable down one flank.
+    passingFocus: "mixed",
+    keeperDistribution,
+    setPieces: { ...DEFAULT_SET_PIECES },
+    // Picked by the caller, which knows the squad. The engine has no opinion.
+    captainId: null,
   };
 }
 
