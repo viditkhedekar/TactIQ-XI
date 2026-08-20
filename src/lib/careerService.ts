@@ -6,6 +6,7 @@
  * that in a single transaction so a half-built save can never be left behind.
  */
 
+import { cache } from "react";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -44,8 +45,16 @@ export type CareerContext = {
   club: ClubRow;
 };
 
-/** Looks up a career by id, with its club. */
-export async function loadCareer(careerId: string): Promise<CareerContext | null> {
+/**
+ * Looks up a career by id, with its club.
+ *
+ * Wrapped in React's `cache` so the layout and the page it wraps share one
+ * query instead of issuing the same one twice. Both call `requireCareer()` on
+ * every navigation, and against a managed Postgres that duplicate was a real
+ * fraction of the wait before anything appeared. The cache lives for exactly
+ * one server render, so it never serves stale data across requests.
+ */
+export const loadCareer = cache(async (careerId: string): Promise<CareerContext | null> => {
   const rows = await db
     .select({ career: careers, club: clubs })
     .from(careers)
@@ -54,7 +63,7 @@ export async function loadCareer(careerId: string): Promise<CareerContext | null
     .limit(1);
 
   return rows[0] ?? null;
-}
+});
 
 export async function findCareerByUsername(username: string): Promise<CareerRow | null> {
   const rows = await db.select().from(careers).where(eq(careers.username, username)).limit(1);
@@ -269,8 +278,13 @@ export type SquadMember = {
  */
 const effectiveClubId = sql<number>`COALESCE(${careerPlayerState.clubId}, ${players.clubId})`;
 
-/** A club's squad in a career, with each player's current condition. */
-export async function loadSquad(careerId: string, clubId: number): Promise<SquadMember[]> {
+/**
+ * A club's squad in a career, with each player's current condition.
+ *
+ * Also request-cached: several screens load the manager's own squad more than
+ * once in a single render (the page itself, plus whatever validates against it).
+ */
+export const loadSquad = cache(async (careerId: string, clubId: number): Promise<SquadMember[]> => {
   const rows = await db
     .select({ player: players, state: careerPlayerState })
     .from(players)
@@ -285,7 +299,7 @@ export async function loadSquad(careerId: string, clubId: number): Promise<Squad
     .orderBy(asc(players.isGk), asc(players.shortName));
 
   return rows.map((r) => ({ player: r.player, state: r.state }));
-}
+});
 
 /** Squads for several clubs at once, keyed by club id. */
 export async function loadSquads(
