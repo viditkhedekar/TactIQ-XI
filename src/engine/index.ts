@@ -7,7 +7,7 @@
 
 export * from "./types";
 
-export { createRng, hash32, type RngState } from "./rng";
+export { createRng, hash32, randInt, shuffle, type RngState } from "./rng";
 
 export {
   FORMATIONS,
