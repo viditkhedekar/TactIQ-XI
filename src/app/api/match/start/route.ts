@@ -64,6 +64,7 @@ export async function POST() {
       away: summarise(state.away),
     });
   } catch (error) {
+    console.error("POST /api/match/start failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not start the match" },
       { status: 400 },
