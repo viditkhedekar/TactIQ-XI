@@ -163,6 +163,19 @@ function leagueArea(p: SeasonProgress): ConfidenceArea {
 }
 
 function cupArea(p: SeasonProgress): ConfidenceArea {
+  // A cup nobody has played yet is not a bad cup run. `cupTotalRounds` of zero
+  // is how "not entered, or not started" arrives here, and it has to be judged
+  // as neutral rather than as an early exit.
+  if (p.cupTotalRounds === 0) {
+    return {
+      key: "cup",
+      label: "Cup run",
+      score: 55,
+      verdict: "content",
+      note: "The cup has not started yet.",
+    };
+  }
+
   if (p.cupWon) {
     return {
       key: "cup",

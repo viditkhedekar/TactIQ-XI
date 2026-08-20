@@ -166,9 +166,11 @@ export async function cupProgressFor(
     .orderBy(asc(fixtures.cupRound));
 
   if (ties.length === 0) {
+    // Zero total rounds is the signal that the competition has not begun, which
+    // the board reads as "nothing to judge" rather than as an early exit.
     return {
       roundsWon: 0,
-      totalRounds: CUP.rounds,
+      totalRounds: 0,
       won: false,
       giantKilled: false,
       stillIn: false,

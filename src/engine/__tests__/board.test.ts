@@ -100,6 +100,14 @@ describe("confidence", () => {
     expect(late.confidence).toBeLessThan(early.confidence);
   });
 
+  it("does not call an unplayed cup an early exit", () => {
+    const view = assessBoard(progress({ cupRoundsWon: 0, cupTotalRounds: 0 }), 65, 0);
+    const cup = view.areas.find((a) => a.key === "cup")!;
+    expect(cup.note).toContain("not started");
+    expect(cup.verdict).not.toBe("furious");
+    expect(cup.verdict).not.toBe("concerned");
+  });
+
   it("treats winning the cup as unarguable", () => {
     const view = assessBoard(progress({ cupWon: true }), 65, 0);
     const cup = view.areas.find((a) => a.key === "cup");
