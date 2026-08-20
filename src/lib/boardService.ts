@@ -430,6 +430,27 @@ async function createJobOffers(tx: Tx, career: CareerRow): Promise<void> {
   );
 }
 
+/**
+ * Relegation, which ends a job on its own.
+ *
+ * Kept separate from the confidence path because it is not a judgement: a board
+ * that adored its manager still dismisses him when the club goes down, so this
+ * bypasses the threshold and the run of bad rounds entirely.
+ */
+export async function sackForRelegation(careerId: string): Promise<void> {
+  const [career] = await db.select().from(careers).where(eq(careers.id, careerId)).limit(1);
+  if (!career) return;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(careers)
+      .set({ phase: "sacked", underPressure: true, updatedAt: new Date() })
+      .where(eq(careers.id, careerId));
+
+    await createJobOffers(tx, career);
+  });
+}
+
 /** Open offers for a manager who is currently out of work. */
 export async function loadJobOffers(careerId: string) {
   return db

@@ -30,7 +30,7 @@ import {
   selectEntrants,
 } from "@/engine";
 import { CUP_CLUB_IDS } from "@/data/lowerClubs";
-import { loadDivision } from "./seasonService";
+import { fixturesInSeason, loadDivision } from "./seasonService";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -59,7 +59,7 @@ export async function ensureCupRound(
     .from(fixtures)
     .where(
       and(
-        eq(fixtures.careerId, careerId),
+        fixturesInSeason(careerId, season),
         eq(fixtures.competition, "cup"),
         eq(fixtures.cupRound, cupRound),
         eq(fixtures.round, round),
@@ -81,6 +81,7 @@ export async function ensureCupRound(
 
   const rows = ties.map((tie) => ({
     careerId,
+    season,
     round,
     competition: "cup",
     cupRound,
@@ -110,7 +111,7 @@ async function winnersOfRound(
     .from(fixtures)
     .where(
       and(
-        eq(fixtures.careerId, careerId),
+        fixturesInSeason(careerId, season),
         eq(fixtures.competition, "cup"),
         eq(fixtures.cupRound, cupRound),
         eq(fixtures.status, "finished"),
@@ -127,25 +128,6 @@ async function winnersOfRound(
       return row.homeGoals >= row.awayGoals ? row.homeClubId : row.awayClubId;
     })
     .filter((id): id is number => id !== null);
-}
-
-/** Cup ties scheduled for a round that have not been played. */
-export async function pendingCupTies(
-  tx: Tx | typeof db,
-  careerId: string,
-  round: number,
-): Promise<FixtureRow[]> {
-  return tx
-    .select()
-    .from(fixtures)
-    .where(
-      and(
-        eq(fixtures.careerId, careerId),
-        eq(fixtures.competition, "cup"),
-        eq(fixtures.round, round),
-        sql`${fixtures.status} <> 'finished'`,
-      ),
-    );
 }
 
 export type CupProgress = {
@@ -176,7 +158,7 @@ export async function cupProgressFor(
     .from(fixtures)
     .where(
       and(
-        eq(fixtures.careerId, careerId),
+        fixturesInSeason(careerId, season),
         eq(fixtures.competition, "cup"),
         sql`(${fixtures.homeClubId} = ${clubId} OR ${fixtures.awayClubId} = ${clubId})`,
       ),
@@ -239,7 +221,7 @@ export async function recordCupHonours(
     .from(fixtures)
     .where(
       and(
-        eq(fixtures.careerId, careerId),
+        fixturesInSeason(careerId, season),
         eq(fixtures.competition, "cup"),
         eq(fixtures.cupRound, CUP.rounds),
         eq(fixtures.status, "finished"),
@@ -273,7 +255,7 @@ export async function recordCupHonours(
 }
 
 /** The whole cup for a season, for the fixtures screen. */
-export async function loadCupBracket(careerId: string) {
+export async function loadCupBracket(careerId: string, season: number) {
   const rows = await db
     .select({
       id: fixtures.id,
@@ -288,7 +270,7 @@ export async function loadCupBracket(careerId: string) {
       penaltyShootout: fixtures.penaltyShootout,
     })
     .from(fixtures)
-    .where(and(eq(fixtures.careerId, careerId), eq(fixtures.competition, "cup")))
+    .where(and(fixturesInSeason(careerId, season), eq(fixtures.competition, "cup")))
     .orderBy(asc(fixtures.cupRound));
 
   if (rows.length === 0) return [];

@@ -34,7 +34,13 @@ import {
   chooseFormation,
   chooseTactics,
   createMatchState,
+  createRng,
+  hash32,
+  penaltyShootout,
   recoverFitness,
+  CUP,
+  squadStrength,
+  ROUNDS_IN_SEASON,
   selectLineup,
   simulateSegment,
   simulateToEnd,
@@ -55,6 +61,8 @@ import { toBench, toEnginePlayer, toLineup, toTeamTactics } from "./engineAdapte
 import { ensureCareerExtras, loadSquads } from "./careerService";
 import { computeWeeklyTraining, loadTrainingPlan, saveTrainingReport } from "./trainingService";
 import { processTransferRound } from "./transferService";
+import { ensureCupRound, recordCupHonours } from "./cupService";
+import { updateBoardConfidence } from "./boardService";
 
 /* --------------------------------------------------------------- assembling */
 
@@ -666,11 +674,155 @@ async function applyMatchResult(
     .where(eq(fixtures.id, result.fixtureId));
 }
 
+/** A cup tie that has been played, including how it was settled. */
+export type CupResult = {
+  fixtureId: string;
+  cupRound: number;
+  homeClubId: number;
+  awayClubId: number;
+  homeGoals: number;
+  awayGoals: number;
+  winnerClubId: number;
+  /** Set only when ninety minutes could not separate them. */
+  shootout: { homeScore: number; awayScore: number } | null;
+  result: MatchResult;
+};
+
+/**
+ * Plays every cup tie due this round.
+ *
+ * Cup ties are simulated rather than watched: the manager's own tie is played
+ * out by the engine exactly like the other nine league games are, and the
+ * result is reported afterwards. A drawn tie goes to penalties immediately
+ * rather than to extra time, which is a simplification, but the shootout is
+ * where the drama is and extra time would need the engine to run past ninety.
+ */
+async function playCupRound(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  careerId: string,
+  season: number,
+  round: number,
+  squads: Map<number, SquadEntry[]>,
+  clubName: Map<number, string>,
+): Promise<CupResult[]> {
+  const ties = await ensureCupRound(tx, careerId, season, round);
+  if (ties.length === 0) return [];
+
+  // The draw can pair clubs whose squads were not loaded for the league round,
+  // because the cup contains sides from outside the division.
+  const needed = [...new Set(ties.flatMap((t) => [t.homeClubId, t.awayClubId]))].filter(
+    (id) => !squads.has(id),
+  );
+
+  if (needed.length > 0) {
+    const extra = await loadEngineSquads(careerId, needed);
+    for (const [clubId, squad] of extra) squads.set(clubId, squad);
+  }
+
+  const missingNames = needed.filter((id) => !clubName.has(id));
+  if (missingNames.length > 0) {
+    const rows = await tx
+      .select({ id: clubs.id, name: clubs.name })
+      .from(clubs)
+      .where(inArray(clubs.id, missingNames));
+    for (const row of rows) clubName.set(row.id, row.name);
+  }
+
+  const results: CupResult[] = [];
+
+  for (const tie of ties) {
+    const homeSquad = squads.get(tie.homeClubId) ?? [];
+    const awaySquad = squads.get(tie.awayClubId) ?? [];
+    if (homeSquad.length === 0 || awaySquad.length === 0) continue;
+
+    const home = buildSide(
+      homeSquad,
+      awaySquad,
+      round,
+      tie.homeClubId,
+      clubName.get(tie.homeClubId) ?? "Home",
+      true,
+    );
+    const away = buildSide(
+      awaySquad,
+      homeSquad,
+      round,
+      tie.awayClubId,
+      clubName.get(tie.awayClubId) ?? "Away",
+      false,
+    );
+
+    const state = createMatchState(tie.id, tie.seed, home, away);
+    const events = simulateToEnd(state, aiMinuteHook);
+    const result = buildMatchResult(state, events);
+
+    let winnerClubId: number;
+    let shootout: { homeScore: number; awayScore: number } | null = null;
+
+    if (result.homeGoals === result.awayGoals) {
+      const penalties = penaltyShootout(
+        createRng(hash32(`${careerId}-pens-${tie.id}`)),
+        { clubId: tie.homeClubId, strength: squadStrength(homeSquad.map((m) => m.player)) },
+        { clubId: tie.awayClubId, strength: squadStrength(awaySquad.map((m) => m.player)) },
+      );
+      winnerClubId = penalties.winnerClubId;
+      shootout = { homeScore: penalties.homeScore, awayScore: penalties.awayScore };
+    } else {
+      winnerClubId = result.homeGoals > result.awayGoals ? tie.homeClubId : tie.awayClubId;
+    }
+
+    results.push({
+      fixtureId: tie.id,
+      cupRound: tie.cupRound ?? 0,
+      homeClubId: tie.homeClubId,
+      awayClubId: tie.awayClubId,
+      homeGoals: result.homeGoals,
+      awayGoals: result.awayGoals,
+      winnerClubId,
+      shootout,
+      result,
+    });
+  }
+
+  return results;
+}
+
+/** Writes cup results back, including the fitness and cards they cost. */
+async function applyCupResults(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  careerId: string,
+  results: CupResult[],
+  round: number,
+): Promise<void> {
+  for (const cup of results) {
+    await applyMatchResult(tx, careerId, cup.result, round);
+    await tx
+      .update(fixtures)
+      .set({
+        winnerClubId: cup.winnerClubId,
+        penaltyShootout: cup.shootout,
+      })
+      .where(eq(fixtures.id, cup.fixtureId));
+  }
+}
+
 export type FinishResult = {
   userResult: { homeGoals: number; awayGoals: number };
   otherResults: { fixtureId: string; homeClubId: number; awayClubId: number; homeGoals: number; awayGoals: number }[];
   nextRound: number;
   seasonComplete: boolean;
+  /** Set when the board dismissed the manager on the back of this round. */
+  sacked: boolean;
+  /** Cup ties played this round, if it was a cup week. */
+  cupResults: {
+    cupRound: number;
+    homeClubId: number;
+    awayClubId: number;
+    homeGoals: number;
+    awayGoals: number;
+    winnerClubId: number;
+    shootout: { homeScore: number; awayScore: number } | null;
+  }[];
   /** The fixture whose report the manager should be shown next. */
   reportFixtureId: string;
 };
@@ -772,6 +924,11 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
   }
   await persistEventsForFixtures(otherNotableEvents);
 
+  // Filled inside the transaction below, but declared here so the result this
+  // function returns can report on the cup as well as the league.
+  let cupResults: CupResult[] = [];
+  let sacked = false;
+
   const playedIds = new Set(
     [...userResult.players, ...otherResults.flatMap((r) => r.players)].map((p) => p.playerId),
   );
@@ -854,10 +1011,39 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
     // answer as the manager clicks through to the next one.
     await processTransferRound(tx, careerId, career.clubId, round + 1);
 
+    // Any cup tie due this week, played after the league game so the fitness it
+    // costs lands on players who have already turned out on the Saturday.
+    cupResults = await playCupRound(tx, careerId, career.season, round, squads, clubName);
+
+    if (cupResults.length > 0) {
+      await applyCupResults(tx, careerId, cupResults, round);
+      // The final is the last tie of the last cup round, so the cabinet can be
+      // written the moment it has been settled.
+      if (cupResults[0].cupRound === CUP.rounds) {
+        await recordCupHonours(tx, careerId, career.season, career.clubId);
+      }
+    }
+
     await tx.delete(liveMatchState).where(eq(liveMatchState.fixtureId, live.fixtureId));
+
+    // The board watches every round, and can act on what it sees. Done last, so
+    // it is judging the round that has just been fully settled.
+    const [updated] = await tx.select().from(careers).where(eq(careers.id, careerId)).limit(1);
+    const verdict = await updateBoardConfidence(tx, { ...updated, currentRound: round });
+    sacked = verdict.sacked;
+
+    const seasonComplete = round >= ROUNDS_IN_SEASON;
+
     await tx
       .update(careers)
-      .set({ currentRound: round + 1, phase: "idle", updatedAt: new Date() })
+      .set({
+        currentRound: round + 1,
+        // A season that has run its course waits on the review screen rather
+        // than rolling straight into the next one: the manager should see where
+        // he finished before being asked to do it again.
+        phase: sacked ? "sacked" : seasonComplete ? "season_over" : "idle",
+        updatedAt: new Date(),
+      })
       .where(eq(careers.id, careerId));
   });
 
@@ -871,7 +1057,17 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
       awayGoals: r.awayGoals,
     })),
     nextRound: round + 1,
-    seasonComplete: round + 1 > 38,
+    seasonComplete: round >= ROUNDS_IN_SEASON,
+    sacked,
+    cupResults: cupResults.map((c) => ({
+      cupRound: c.cupRound,
+      homeClubId: c.homeClubId,
+      awayClubId: c.awayClubId,
+      homeGoals: c.homeGoals,
+      awayGoals: c.awayGoals,
+      winnerClubId: c.winnerClubId,
+      shootout: c.shootout,
+    })),
     reportFixtureId: live.fixtureId,
   };
 }

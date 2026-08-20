@@ -25,9 +25,12 @@ import {
   ROLLOVER,
   ageOneSummer,
   applyPromotionAndRelegation,
+  DEFAULT_SEASON_START,
   createRng,
   expectationFromStrength,
+  generateSchedule,
   hash32,
+  roundDate,
   squadStrength,
   type TableStanding,
 } from "@/engine";
@@ -36,6 +39,18 @@ import { PL_CLUB_IDS } from "@/data/clubs";
 import { toAttributeDeltas, toEnginePlayer } from "./engineAdapter";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Scopes a fixture query to one season of one career.
+ *
+ * Rounds restart every August, so every query against `fixtures` needs this.
+ * It exists as a shared helper rather than as fifteen hand-written `and(...)`
+ * clauses because forgetting it does not fail loudly: it silently blends two
+ * seasons into one league table.
+ */
+export function fixturesInSeason(careerId: string, season: number) {
+  return and(eq(fixtures.careerId, careerId), eq(fixtures.season, season));
+}
 
 /**
  * The clubs in a career's top flight for a season.
@@ -118,7 +133,7 @@ export async function buildLeagueTable(
     .from(fixtures)
     .where(
       and(
-        eq(fixtures.careerId, careerId),
+        fixturesInSeason(careerId, season),
         eq(fixtures.competition, "league"),
         eq(fixtures.status, "finished"),
       ),
@@ -562,6 +577,46 @@ export async function computeExpectation(
 }
 
 /* --------------------------------------------------------------- reading */
+
+/**
+ * Draws the fixture list for a new season.
+ *
+ * Separate from `rolloverSeason` because the division has to be settled first:
+ * the schedule is generated from whoever is in the league now, not whoever was
+ * in it last year.
+ */
+export async function regenerateSeasonFixtures(
+  careerId: string,
+  season: number,
+): Promise<void> {
+  const division = await loadDivision(careerId, season);
+  const rng = createRng(hash32(`${careerId}-schedule-${season}`));
+  const schedule = generateSchedule(division, rng);
+
+  await db.transaction(async (tx) => {
+    // A season's fixtures are drawn once. Re-running would double the list.
+    const [existing] = await tx
+      .select({ id: fixtures.id })
+      .from(fixtures)
+      .where(fixturesInSeason(careerId, season))
+      .limit(1);
+
+    if (existing) return;
+
+    await tx.insert(fixtures).values(
+      schedule.map((f) => ({
+        careerId,
+        season,
+        round: f.round,
+        homeClubId: f.homeClubId,
+        awayClubId: f.awayClubId,
+        kickoffDate: roundDate(DEFAULT_SEASON_START, f.round).toISOString().slice(0, 10),
+        seed:
+          hash32(`${careerId}-${season}-${f.round}-${f.homeClubId}-${f.awayClubId}`) & 0x7fffffff,
+      })),
+    );
+  });
+}
 
 /** Every completed season's table, newest first. */
 export async function loadSeasonHistory(careerId: string): Promise<SeasonHistoryRow[]> {

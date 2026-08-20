@@ -356,6 +356,14 @@ export const fixtures = pgTable(
       .notNull()
       .references(() => careers.id, { onDelete: "cascade" }),
     /**
+     * Which season this fixture belongs to.
+     *
+     * Rounds restart at 1 every August, so without this a save in its third
+     * season would have three different fixtures called "round 4" and a league
+     * table built from all of them.
+     */
+    season: smallint("season").notNull().default(1),
+    /**
      * The league round this is played in. Cup ties borrow the number of the
      * league round they sit alongside, so "everything scheduled for round N"
      * stays a single query and a cup tie is played in the same week.
@@ -404,12 +412,13 @@ export const fixtures = pgTable(
     report: jsonb("report"),
   },
   (table) => [
-    index("fixtures_career_round_idx").on(table.careerId, table.round),
-    // Competition is part of the key because a cup tie is played midweek in the
-    // same round as a league game, so one club can legitimately be at home
-    // twice in a round. Without it the second insert collides with the first.
+    index("fixtures_career_round_idx").on(table.careerId, table.season, table.round),
+    // Season and competition are both part of the key: rounds repeat every
+    // season, and a cup tie is played midweek in the same round as a league
+    // game, so one club can legitimately be at home twice in a round.
     unique("fixtures_career_round_home_unique").on(
       table.careerId,
+      table.season,
       table.round,
       table.competition,
       table.homeClubId,

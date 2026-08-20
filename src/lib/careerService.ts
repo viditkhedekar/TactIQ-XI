@@ -40,6 +40,7 @@ import {
 } from "@/engine";
 import { toEnginePlayer, toStoredInstructions } from "./engineAdapter";
 import { PL_CLUB_IDS } from "@/data/clubs";
+import { setExpectation } from "./boardService";
 
 export type CareerContext = {
   career: CareerRow;
@@ -253,7 +254,21 @@ export async function createOrResumeCareer(
   }
 
   const career = await createCareer(username, clubId);
-  return { career, resumed: false };
+
+  // The board's target for season one, set from squad strength against the rest
+  // of the division. Done after creation rather than inside it because it needs
+  // the division and every squad to already be on disk.
+  await db.transaction(async (tx) => {
+    await setExpectation(tx, career.id, 1, clubId);
+  });
+
+  const [withExpectation] = await db
+    .select()
+    .from(careers)
+    .where(eq(careers.id, career.id))
+    .limit(1);
+
+  return { career: withExpectation ?? career, resumed: false };
 }
 
 export type SquadMember = {

@@ -30,6 +30,15 @@ import {
   respondToIncoming,
   withdrawOffer,
 } from "@/lib/transferService";
+import { db } from "@/db/client";
+import {
+  acceptJob,
+  requestFunds,
+  requestSale,
+  sackForRelegation,
+  setExpectation,
+} from "@/lib/boardService";
+import { regenerateSeasonFixtures, rolloverSeason } from "@/lib/seasonService";
 import {
   isTrainingFocus,
   normaliseTactics,
@@ -266,4 +275,78 @@ export async function respondToOfferAction(
   const result = await respondToIncoming(career.id, offerId, accept, career.currentRound);
   revalidateCareer();
   return result.ok ? { message: result.message } : { error: result.message };
+}
+
+/* -------------------------------------------------------------------- board */
+
+/** Asks the board to release money. */
+export async function requestFundsAction(
+  _prev: OfferState,
+  formData: FormData,
+): Promise<OfferState> {
+  const { career } = await requireCareer();
+
+  const type = String(formData.get("type") ?? "");
+  if (type !== "transfer_funds" && type !== "wage_room") {
+    return { error: "That is not something you can ask for" };
+  }
+
+  const amount = Number(formData.get("amountEur") ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { error: "Ask for a real figure" };
+  }
+
+  const result = await requestFunds(career.id, type, Math.round(amount));
+  revalidateCareer();
+  return result.ok ? { message: result.message } : { error: result.message };
+}
+
+/** Asks the board to make a player available for transfer. */
+export async function requestSaleAction(playerId: number): Promise<OfferState> {
+  const { career } = await requireCareer();
+
+  if (!Number.isInteger(playerId)) return { error: "That is not a player" };
+
+  const result = await requestSale(career.id, playerId);
+  revalidateCareer();
+  return result.ok ? { message: result.message } : { error: result.message };
+}
+
+/* ------------------------------------------------------------------ season */
+
+/** Closes the finished season and opens the next one. */
+export async function startNextSeasonAction(): Promise<ActionState> {
+  const { career } = await requireCareer();
+
+  if (career.phase !== "season_over") {
+    return { error: "The season is still going" };
+  }
+
+  const result = await rolloverSeason(career.id);
+
+  // Relegation costs the manager his job, whatever the board thought of him
+  // until that point. The offers are written here so the sacked screen has
+  // something to show.
+  if (result.userRelegated) {
+    await sackForRelegation(career.id);
+  } else {
+    await db.transaction(async (tx) => {
+      await setExpectation(tx, career.id, career.season + 1, career.clubId);
+    });
+    await regenerateSeasonFixtures(career.id, career.season + 1);
+  }
+
+  revalidateCareer();
+  redirect(result.userRelegated ? "/career/board" : "/career/fixtures");
+}
+
+/** Takes one of the jobs offered after a sacking. */
+export async function acceptJobAction(offerId: number): Promise<ActionState> {
+  const { career } = await requireCareer();
+
+  const result = await acceptJob(career.id, offerId);
+  if (!result.ok) return { error: result.message };
+
+  revalidateCareer();
+  redirect("/career/squad");
 }

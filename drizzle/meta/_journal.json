@@ -36,6 +36,13 @@
       "when": 1787237696162,
       "tag": "0004_late_norman_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787238126241,
+      "tag": "0005_last_fixer",
+      "breakpoints": true
     }
   ]
 }
