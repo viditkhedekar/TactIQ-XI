@@ -100,7 +100,9 @@ export async function saveTacticsAction(
     lineup,
     parsed.data.bench,
   );
-  if (problems.length > 0) return { error: problems[0] };
+  // All of them, not just the first. A manager with two unavailable players
+  // should not have to save twice to find that out.
+  if (problems.length > 0) return { error: problems.join(". ") };
 
   // The captain has to be someone the manager actually has, and the same goes
   // for every set piece taker, or a crafted payload could hand the armband to
