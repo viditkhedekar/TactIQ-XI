@@ -160,6 +160,57 @@ export function weeklyWage(row: PlayerRow): number {
   return Math.round(Math.pow(Math.max(45, row.overall) / 10, 3.4) * 55);
 }
 
+/**
+ * Fills in rows a career should have but does not.
+ *
+ * Careers created before budgets and training plans existed have neither, and
+ * would otherwise load the transfer screen with nothing to spend. Rather than
+ * demand a manual backfill for a game people already have saves in, the rows
+ * are created on demand the first time something needs them. Cheap, because
+ * `onConflictDoNothing` makes the repeat case a single no-op insert.
+ */
+export async function ensureCareerExtras(careerId: string): Promise<void> {
+  const [existing] = await db
+    .select({ clubId: careerClubFinance.clubId })
+    .from(careerClubFinance)
+    .where(eq(careerClubFinance.careerId, careerId))
+    .limit(1);
+
+  if (existing) return;
+
+  const allPlayers = await db.select().from(players);
+  const states = await db
+    .select({
+      playerId: careerPlayerState.playerId,
+      clubId: careerPlayerState.clubId,
+    })
+    .from(careerPlayerState)
+    .where(eq(careerPlayerState.careerId, careerId));
+
+  const movedTo = new Map(states.map((s) => [s.playerId, s.clubId]));
+
+  await db.transaction(async (tx) => {
+    await tx.insert(careerTraining).values({ careerId }).onConflictDoNothing();
+
+    await tx
+      .insert(careerClubFinance)
+      .values(
+        PL_CLUB_IDS.map((id) => {
+          const rows = allPlayers.filter((p) => (movedTo.get(p.id) ?? p.clubId) === id);
+          return {
+            careerId,
+            clubId: id,
+            ...startingBudget(
+              rows.map((p) => toEnginePlayer(p)),
+              rows.reduce((sum, p) => sum + weeklyWage(p), 0),
+            ),
+          };
+        }),
+      )
+      .onConflictDoNothing();
+  });
+}
+
 /** Creates a career, or returns the existing one for a username. */
 export async function createOrResumeCareer(
   username: string,
