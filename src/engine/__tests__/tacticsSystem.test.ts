@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { createMatchState, simulateToEnd } from "../match";
+import { applyIntervention, createMatchState, simulateSegment, simulateToEnd } from "../match";
 import { aiMinuteHook } from "../aiManager";
 import { makeSide, resetPlayerIds } from "./factories";
 import {
@@ -23,7 +23,7 @@ import {
   normaliseTactics,
 } from "../tactics";
 import { describeShape, isValidPlacement, snapToAnchor, PITCH_ANCHORS } from "../pitch";
-import type { PitchPlacement, TeamTactics } from "../types";
+import type { MatchEvent, PitchPlacement, TeamTactics } from "../types";
 
 const MATCHES = 260;
 
@@ -292,5 +292,91 @@ describe("the pitch", () => {
       }));
       expect(describeShape(placements).split("-").length).toBeLessThanOrEqual(4);
     }
+  });
+});
+
+describe("changing things during the match", () => {
+  function midMatch() {
+    resetPlayerIds();
+    const home = makeSide({ clubId: 1, clubName: "A", level: 75, isHome: true });
+    const away = makeSide({ clubId: 2, clubName: "B", level: 75, isHome: false });
+    const state = createMatchState("f", 4242, home, away);
+    simulateSegment(state, { onMinute: aiMinuteHook });
+    return state;
+  }
+
+  it("moves a player to a new position without spending a substitution", () => {
+    const state = midMatch();
+    const target = state.home.onPitch.find((lp) => lp.slot === "LB")!;
+    const events: MatchEvent[] = [];
+
+    const result = applyIntervention(
+      state,
+      true,
+      { placements: [{ playerId: target.player.id, slot: "LWB", x: 8, y: 60 }] },
+      events,
+    );
+
+    expect(target.slot).toBe("LWB");
+    expect(state.home.subsUsed).toBe(0);
+    expect(result.tacticsChanged).toBe(true);
+    expect(events.some((e) => e.type === "tactic_change")).toBe(true);
+  });
+
+  it("refuses to shuffle a keeper outfield, which is a substitution not a move", () => {
+    const state = midMatch();
+    const keeper = state.home.onPitch.find((lp) => lp.player.isGk)!;
+
+    applyIntervention(
+      state,
+      true,
+      { placements: [{ playerId: keeper.player.id, slot: "ST", x: 50, y: 14 }] },
+      [],
+    );
+
+    expect(keeper.slot).toBe("GK");
+  });
+
+  it("accepts every instruction mid-match, not just the original sliders", () => {
+    const state = midMatch();
+
+    applyIntervention(
+      state,
+      true,
+      {
+        tactics: {
+          defensiveLine: 1,
+          closingDown: 1,
+          tackling: 5,
+          offsideTrap: true,
+          finalThird: "shoot_early",
+          passingFocus: "left",
+          keeperDistribution: "long",
+        },
+      },
+      [],
+    );
+
+    expect(state.home.tactics.defensiveLine).toBe(1);
+    expect(state.home.tactics.offsideTrap).toBe(true);
+    expect(state.home.tactics.finalThird).toBe("shoot_early");
+    expect(state.home.tactics.keeperDistribution).toBe("long");
+  });
+
+  it("reports no change when nothing actually moved", () => {
+    const state = midMatch();
+    const current = state.home.onPitch[3];
+
+    const result = applyIntervention(
+      state,
+      true,
+      {
+        tactics: { mentality: state.home.tactics.mentality },
+        placements: [{ playerId: current.player.id, slot: current.slot, x: 0, y: 0 }],
+      },
+      [],
+    );
+
+    expect(result.tacticsChanged).toBe(false);
   });
 });
