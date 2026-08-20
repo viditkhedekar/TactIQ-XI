@@ -116,7 +116,13 @@ export function MatchDay({ homeColor, awayColor }: { homeColor?: string; awayCol
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not finish the round");
       useMatchStore.getState().markSettled();
-      router.push("/career/fixtures");
+      // Straight to the report rather than the results grid: the manager has
+      // just watched the match, so what they want next is the verdict on it.
+      router.push(
+        body.reportFixtureId
+          ? `/career/report?fixture=${body.reportFixtureId}`
+          : "/career/report",
+      );
       router.refresh();
     } catch (e) {
       store.setError(e instanceof Error ? e.message : "Could not finish the round");
