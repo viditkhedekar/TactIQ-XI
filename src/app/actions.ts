@@ -10,10 +10,27 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createOrResumeCareer, saveTactics, validateLineup } from "@/lib/careerService";
+import { createOrResumeCareer, loadSquad, saveTactics, validateLineup } from "@/lib/careerService";
 import { clearCareerCookie, requireCareer, setCareerCookie } from "@/lib/session";
-import { createCareerSchema, firstError, tacticsSchema } from "@/lib/validation";
-import type { Slot } from "@/engine";
+import {
+  createCareerSchema,
+  firstError,
+  offerSchema,
+  tacticsSchema,
+  trainingPlanSchema,
+} from "@/lib/validation";
+import {
+  loadTrainingPlan,
+  saveTrainingPlan,
+  setIndividualFocus,
+} from "@/lib/trainingService";
+import {
+  acceptCounter,
+  makeOffer,
+  respondToIncoming,
+  withdrawOffer,
+} from "@/lib/transferService";
+import { isTrainingFocus, type Slot, type TrainingFocus, type TrainingIntensity } from "@/engine";
 
 export type ActionState = { error?: string } | null;
 
@@ -84,4 +101,129 @@ export async function saveTacticsAction(
   revalidatePath("/career/tactics");
   revalidatePath("/career/squad");
   return null;
+}
+
+/* ----------------------------------------------------------------- training */
+
+/**
+ * Sets the squad's training focus, keeping the intensity where it is.
+ *
+ * Called both from the training screen and from the post-match report, which is
+ * why it takes a bare focus rather than a form: the report's whole value is
+ * that acting on it costs one click.
+ */
+export async function setTrainingFocusAction(focus: string): Promise<ActionState> {
+  const { career } = await requireCareer();
+
+  if (!isTrainingFocus(focus)) return { error: "That is not a training focus" };
+
+  const current = await loadTrainingPlan(career.id);
+  await saveTrainingPlan(career.id, focus, current.intensity);
+
+  revalidatePath("/career/training");
+  revalidatePath("/career/report");
+  return null;
+}
+
+export async function saveTrainingAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const { career } = await requireCareer();
+
+  const parsed = trainingPlanSchema.safeParse({
+    focus: String(formData.get("focus") ?? ""),
+    intensity: Number(formData.get("intensity") ?? 3),
+  });
+  if (!parsed.success) return { error: firstError(parsed.error) };
+
+  await saveTrainingPlan(
+    career.id,
+    parsed.data.focus as TrainingFocus,
+    parsed.data.intensity as TrainingIntensity,
+  );
+
+  revalidatePath("/career/training");
+  return null;
+}
+
+/** Puts one player on his own programme, or takes him off it. */
+export async function setIndividualFocusAction(
+  playerId: number,
+  focus: string | null,
+): Promise<ActionState> {
+  const { career } = await requireCareer();
+
+  if (!Number.isInteger(playerId)) return { error: "That is not a player" };
+  if (focus !== null && !isTrainingFocus(focus)) {
+    return { error: "That is not a training focus" };
+  }
+
+  // Only the manager's own players, so a crafted request cannot put somebody
+  // else's striker on extra finishing work.
+  const squad = await loadSquad(career.id, career.clubId);
+  if (!squad.some((m) => m.player.id === playerId)) {
+    return { error: "He is not in your squad" };
+  }
+
+  await setIndividualFocus(career.id, playerId, focus);
+  revalidatePath("/career/training");
+  return null;
+}
+
+/* ---------------------------------------------------------------- transfers */
+
+export type OfferState = { error?: string; message?: string } | null;
+
+export async function makeOfferAction(
+  _prev: OfferState,
+  formData: FormData,
+): Promise<OfferState> {
+  const { career } = await requireCareer();
+
+  const parsed = offerSchema.safeParse({
+    playerId: Number(formData.get("playerId") ?? 0),
+    feeEur: Number(formData.get("feeEur") ?? 0),
+    wageEur: Number(formData.get("wageEur") ?? 0),
+  });
+  if (!parsed.success) return { error: firstError(parsed.error) };
+
+  const result = await makeOffer(
+    career.id,
+    career.clubId,
+    career.currentRound,
+    parsed.data.playerId,
+    parsed.data.feeEur,
+    parsed.data.wageEur,
+  );
+
+  revalidatePath("/career/transfers");
+  if (!result.ok) return { error: result.error };
+  return { message: "Bid submitted. They will respond next round." };
+}
+
+export async function withdrawOfferAction(offerId: string): Promise<OfferState> {
+  const { career } = await requireCareer();
+  await withdrawOffer(career.id, offerId);
+  revalidatePath("/career/transfers");
+  return { message: "Bid withdrawn" };
+}
+
+export async function acceptCounterAction(offerId: string): Promise<OfferState> {
+  const { career } = await requireCareer();
+  const result = await acceptCounter(career.id, offerId, career.currentRound);
+  revalidatePath("/career/transfers");
+  revalidatePath("/career/squad");
+  return result.ok ? { message: result.message } : { error: result.message };
+}
+
+export async function respondToOfferAction(
+  offerId: string,
+  accept: boolean,
+): Promise<OfferState> {
+  const { career } = await requireCareer();
+  const result = await respondToIncoming(career.id, offerId, accept, career.currentRound);
+  revalidatePath("/career/transfers");
+  revalidatePath("/career/squad");
+  return result.ok ? { message: result.message } : { error: result.message };
 }
