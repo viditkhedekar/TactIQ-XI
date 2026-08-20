@@ -14,7 +14,7 @@
  * substitutions possible without rewriting history the player already saw.
  */
 
-import { CHANCES, COLOUR, MATCH, SET_PIECES, SHAPE, SHOOTING } from "./constants";
+import { CAPTAIN, CHANCES, COLOUR, MATCH, RATING, SET_PIECES, SHAPE, SHOOTING } from "./constants";
 import {
   isPenaltyFoul,
   pickAssister,
@@ -22,6 +22,7 @@ import {
   pickFouled,
   pickFouler,
   pickPenaltyTaker,
+  pickSetPieceTaker,
   pickShooter,
   resolveCard,
   resolveShot,
@@ -63,6 +64,7 @@ import {
   rollInjury,
 } from "./fatigue";
 import {
+  adjustRating,
   applyCleanSheet,
   applyTeamDrift,
   creditAssist,
@@ -159,8 +161,9 @@ function averageAggression(side: MatchSide): number {
 }
 
 function buildContext(state: MatchState): MatchContext {
-  const homeRatings = computeTeamRatings(state.home);
-  const awayRatings = computeTeamRatings(state.away);
+  const margin = state.homeGoals - state.awayGoals;
+  const homeRatings = computeTeamRatings(state.home, margin);
+  const awayRatings = computeTeamRatings(state.away, -margin);
   const homePossession = possessionShare(
     homeRatings.midfield,
     awayRatings.midfield,
@@ -385,6 +388,23 @@ function emitColour(state: MatchState, emit: Emitter): void {
   }
 }
 
+/** Extra rating drift the captain absorbs for how the side is going. */
+function applyCaptainDrift(side: MatchSide, goalDifference: number): void {
+  const captainId = side.tactics.captainId;
+  if (captainId === null) return;
+
+  const captain = side.onPitch.find((lp) => lp.player.id === captainId && !lp.sentOff);
+  if (!captain) return;
+
+  const direction = goalDifference > 0 ? 1 : goalDifference < 0 ? -1 : 0;
+  if (direction === 0) return;
+
+  adjustRating(
+    captain,
+    RATING.teamPerformanceDrift * (CAPTAIN.ownDriftShare - 1) * direction,
+  );
+}
+
 function sideOf(state: MatchState, isHome: boolean): MatchSide {
   return isHome ? state.home : state.away;
 }
@@ -461,7 +481,33 @@ function resolveChance(
     trapBeatenBonus = SHAPE.offsideTrapBeatenXgBonus;
   }
 
-  const assister = pickAssister(rng, attacking, shooter, type);
+  let assister = pickAssister(rng, attacking, shooter, type);
+
+  /**
+   * Set pieces are delivered by whoever the manager nominated, and the delivery
+   * decides what sort of chance it becomes. The nominated man replaces whoever
+   * the general assist logic picked rather than being drawn separately, so the
+   * RNG stream is untouched by having a taker named.
+   */
+  let deliveryQuality = 1;
+  if (type === "set_piece") {
+    const taker = pickSetPieceTaker(attacking, "corners");
+    if (taker && taker.player.id !== shooter.player.id) assister = taker;
+
+    const delivery = SET_PIECES.cornerDelivery[attacking.tactics.setPieces.cornerDelivery];
+
+    // Nothing here draws from the RNG, and the default delivery is exactly
+    // neutral, so naming a taker and picking a delivery cannot move the
+    // engine's calibration. What it does is decide whether the delivery suits
+    // the man attacking it: hanging one up at the back post is worth having if
+    // you have someone to head it, and worth nothing if you do not.
+    const aerialFit =
+      1 +
+      (delivery.aerial - 1) *
+        Math.max(-0.6, Math.min(0.7, (shooter.player.headingAccuracy - 65) / 50));
+
+    deliveryQuality = delivery.xg * aerialFit;
+  }
   const keeper = keeperOf(defending);
   const names = {
     player: shooter.player.name,
@@ -478,7 +524,7 @@ function resolveChance(
     // fouls and cards rather than being free.
     defendRatings.defence * defensiveDiscipline(defending.tactics),
     defendRatings.goalkeeping,
-    chanceQualityMultiplier(attacking.tactics) * trapBeatenBonus,
+    chanceQualityMultiplier(attacking.tactics) * trapBeatenBonus * deliveryQuality,
   );
 
   stats.shots++;
@@ -1031,6 +1077,11 @@ export function simulateSegment(
     if (state.minute % 15 === 0) {
       applyTeamDrift(state.home.onPitch, state.homeGoals - state.awayGoals);
       applyTeamDrift(state.away.onPitch, state.awayGoals - state.homeGoals);
+      // A captain carries a little more of the team's afternoon than anyone
+      // else, in both directions. It is the one place the armband shows up
+      // directly in a number the manager can see.
+      applyCaptainDrift(state.home, state.homeGoals - state.awayGoals);
+      applyCaptainDrift(state.away, state.awayGoals - state.homeGoals);
       contextDirty = true;
     }
 
