@@ -13,7 +13,7 @@
  * the manager has seen is ever contradicted.
  */
 
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   careerPlayerState,
@@ -42,6 +42,7 @@ import {
   type EnginePlayer,
   type Intervention,
   type LineupPlayer,
+  type MatchAnalysis,
   type MatchEvent,
   type MatchResult,
   type MatchSide,
@@ -808,6 +809,35 @@ export async function quickSimMatchday(careerId: string): Promise<FinishResult> 
   }
 
   return finishMatchday(careerId);
+}
+
+/**
+ * The most recent match report, which is what the manager is sent to at full
+ * time. Falls back to the latest one on record when no fixture is named, so a
+ * refresh of the report screen still finds it.
+ */
+export async function loadMatchReport(
+  careerId: string,
+  clubId: number,
+  fixtureId?: string,
+): Promise<MatchAnalysis | null> {
+  const rows = await db
+    .select({ report: fixtures.report, round: fixtures.round, id: fixtures.id })
+    .from(fixtures)
+    .where(
+      and(
+        eq(fixtures.careerId, careerId),
+        eq(fixtures.status, "finished"),
+        sql`${fixtures.report} IS NOT NULL`,
+        fixtureId
+          ? eq(fixtures.id, fixtureId)
+          : sql`(${fixtures.homeClubId} = ${clubId} OR ${fixtures.awayClubId} = ${clubId})`,
+      ),
+    )
+    .orderBy(desc(fixtures.round))
+    .limit(1);
+
+  return (rows[0]?.report as MatchAnalysis | undefined) ?? null;
 }
 
 /** The events of a finished match, for the report screen. */
