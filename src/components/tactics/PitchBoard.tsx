@@ -176,15 +176,32 @@ export function PitchBoard({
               }`}
               style={{ left: `${x}%`, top: `${y}%` }}
             >
-              <span
-                className="flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold shadow"
-                style={{
-                  background: player?.unavailable ? "var(--bad)" : "var(--bg-raised)",
-                  color: fitColor(fit),
-                  border: `1.5px solid ${fitColor(fit)}`,
-                }}
-              >
-                {SLOT_LABEL[placement.slot]}
+              {/* The marker keeps its dark background whatever the player's
+                  availability, so the position stays readable. An unavailable
+                  man is flagged with a ring and a badge instead of being
+                  painted over, which used to hide the very label the manager
+                  is dragging by. */}
+              <span className="relative">
+                <span
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold shadow"
+                  style={{
+                    background: "var(--bg-raised)",
+                    color: fitColor(fit),
+                    border: `1.5px solid ${player?.unavailable ? "var(--bad)" : fitColor(fit)}`,
+                    boxShadow: player?.unavailable ? "0 0 0 2px rgba(248,81,73,0.35)" : undefined,
+                  }}
+                >
+                  {SLOT_LABEL[placement.slot]}
+                </span>
+                {player?.unavailable && (
+                  <span
+                    className="absolute -right-1.5 -top-1 rounded px-0.5 text-[7px] font-bold leading-tight"
+                    style={{ background: "var(--bad)", color: "#fff" }}
+                    title={player.unavailable === "injured" ? "Injured" : "Suspended"}
+                  >
+                    {player.unavailable === "injured" ? "I" : "S"}
+                  </span>
+                )}
               </span>
               <span
                 className={`mt-0.5 max-w-full truncate rounded px-1 text-center ${

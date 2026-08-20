@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadMatchEvents, startMatchday } from "@/lib/matchService";
 import { getCareerId } from "@/lib/session";
-import type { MatchSide } from "@/engine";
+import { placementsFromFormation, type MatchSide } from "@/engine";
 
 /**
  * Opens the manager's fixture and returns what the ticker needs to render.
@@ -16,6 +16,12 @@ function summarise(side: MatchSide) {
     clubName: side.clubName,
     isUser: side.isUser,
     tactics: side.tactics,
+    // Where the eleven are standing, derived from their slots. The live match
+    // state carries roles rather than coordinates, so the drawer's board is
+    // laid out from the anchor each role rests at.
+    placements: placementsFromFormation(
+      side.onPitch.map((lp) => ({ playerId: lp.player.id, slot: lp.slot })),
+    ),
     onPitch: side.onPitch.map((lp) => ({
       id: lp.player.id,
       name: lp.player.name,

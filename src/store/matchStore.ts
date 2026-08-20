@@ -9,7 +9,7 @@
  */
 
 import { create } from "zustand";
-import type { MatchEvent, SegmentBoundary } from "@/engine";
+import type { MatchEvent, PitchPlacement, SegmentBoundary, TeamTactics } from "@/engine";
 
 export type SidePlayer = {
   id: number;
@@ -23,14 +23,14 @@ export type SideSummary = {
   clubId: number;
   clubName: string;
   isUser: boolean;
-  tactics: {
-    formation: string;
-    mentality: number;
-    pressing: number;
-    tempo: number;
-    width: number;
-    directness: number;
-  };
+  /**
+   * The side's whole plan, not just the five original sliders. The mid-match
+   * drawer offers everything the tactics screen does, so it needs everything
+   * the tactics screen has.
+   */
+  tactics: TeamTactics;
+  /** Where the eleven are standing, so the drawer can show the same board. */
+  placements?: PitchPlacement[];
   onPitch: SidePlayer[];
   bench: SidePlayer[];
 };
@@ -97,7 +97,8 @@ type MatchStore = {
   setPhase: (phase: MatchPhase) => void;
   markSettled: () => void;
   applyLocalSub: (off: number, on: number) => void;
-  applyLocalTactics: (tactics: Partial<SideSummary["tactics"]>) => void;
+  applyLocalTactics: (tactics: Partial<TeamTactics>) => void;
+  applyLocalPlacements: (placements: PitchPlacement[]) => void;
   reset: () => void;
 };
 
@@ -218,6 +219,14 @@ export const useMatchStore = create<MatchStore>((set, get) => ({
       const side = state.home?.isUser ? state.home : state.away;
       if (!side) return {};
       const updated = { ...side, tactics: { ...side.tactics, ...tactics } };
+      return state.home?.isUser ? { home: updated } : { away: updated };
+    }),
+
+  applyLocalPlacements: (placements) =>
+    set((state) => {
+      const side = state.home?.isUser ? state.home : state.away;
+      if (!side) return {};
+      const updated = { ...side, placements };
       return state.home?.isUser ? { home: updated } : { away: updated };
     }),
 
