@@ -11,6 +11,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   careerClubFinance,
+  careerDivision,
   careerPlayerState,
   careerTactics,
   careerTraining,
@@ -84,8 +85,18 @@ export async function createCareer(username: string, clubId: number): Promise<Ca
 
     const allPlayers = await tx.select().from(players);
 
-    await tx.insert(careerPlayerState).values(
-      allPlayers.map((p) => ({ careerId: career.id, playerId: p.id })),
+    // State for every player in the game, including the clubs below the top
+    // flight: they age, they get promoted, and their players are signable.
+    for (let i = 0; i < allPlayers.length; i += 400) {
+      await tx.insert(careerPlayerState).values(
+        allPlayers.slice(i, i + 400).map((p) => ({ careerId: career.id, playerId: p.id })),
+      );
+    }
+
+    // Season one is the real twenty. From season two the membership is whatever
+    // the summer left behind, which is why it is recorded rather than assumed.
+    await tx.insert(careerDivision).values(
+      PL_CLUB_IDS.map((id) => ({ careerId: career.id, season: 1, clubId: id })),
     );
 
     // Fixtures. The seed is derived from the career and the pairing, so a
@@ -124,8 +135,9 @@ export async function createCareer(username: string, clubId: number): Promise<Ca
 
     // Budgets for every club, not only the manager's, because the AI clubs bid
     // against each other and have to be able to run out of money.
+    const allClubIds = [...new Set(allPlayers.map((p) => p.clubId))];
     await tx.insert(careerClubFinance).values(
-      PL_CLUB_IDS.map((id) => {
+      allClubIds.map((id) => {
         const rows = allPlayers.filter((p) => p.clubId === id);
         return {
           careerId: career.id,
