@@ -9,9 +9,10 @@ import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { clubs, fixtures } from "@/db/schema";
 import { requireCareer } from "@/lib/session";
-import { ClubDot } from "@/components/ui/primitives";
+import { ClubDot, Button } from "@/components/ui/primitives";
 import { CareerNav } from "@/components/CareerNav";
 import { ContinueButton } from "@/components/ContinueButton";
+import { signOutAction } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,12 @@ export default async function CareerLayout({
             {career.username}
           </span>
         </Link>
+
+        <form action={signOutAction} className="border-b border-[var(--border)] px-3 py-2">
+          <Button type="submit" variant="ghost" size="sm" className="w-full justify-center">
+            Log out
+          </Button>
+        </form>
 
         <CareerNav />
 
