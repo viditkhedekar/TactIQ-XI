@@ -13,9 +13,36 @@ export {
   FORMATIONS,
   FORMATION_NAMES,
   DEFAULT_TACTICS,
-  isFormationName,
+  DEFAULT_SET_PIECES,
+  TACTICAL_STYLES,
+  TACTICAL_STYLE_NAMES,
+  FINAL_THIRD_OPTIONS,
+  PASSING_FOCUS_OPTIONS,
+  KEEPER_DISTRIBUTION_OPTIONS,
+  CORNER_DELIVERY_OPTIONS,
+  applyStyle,
   applyTacticsChange,
+  cardMultiplier,
+  chanceQualityMultiplier,
+  defensiveDiscipline,
+  isFormationName,
+  isTacticalStyle,
+  matchingStyle,
+  normaliseTactics,
+  offsideTrapChance,
+  type TacticalStyle,
+  type TacticalStyleName,
 } from "./tactics";
+
+export {
+  PITCH_ANCHORS,
+  SLOT_HOME,
+  describeShape,
+  isValidPlacement,
+  placementsFromFormation,
+  snapToAnchor,
+  type PitchAnchor,
+} from "./pitch";
 
 export {
   positionFit,

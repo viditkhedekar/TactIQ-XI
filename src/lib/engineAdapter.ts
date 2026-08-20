@@ -7,7 +7,17 @@
  */
 
 import type { CareerPlayerStateRow, PlayerRow } from "@/db/schema";
-import { applyDeltas, type EnginePlayer, type Position, type Slot, type TeamTactics, type TrainableAttribute } from "@/engine";
+import {
+  SLOT_HOME,
+  applyDeltas,
+  normaliseTactics,
+  type EnginePlayer,
+  type PitchPlacement,
+  type Position,
+  type Slot,
+  type TeamTactics,
+  type TrainableAttribute,
+} from "@/engine";
 import type { CareerTacticsRow } from "@/db/schema";
 
 /** The state fields that change how a player performs, all of them optional. */
@@ -96,31 +106,73 @@ export function toEnginePlayer(row: PlayerRow, state?: PlayerCondition | null): 
   return applyDeltas(base, toAttributeDeltas(state?.attributeDeltas));
 }
 
-export type LineupEntry = { playerId: number; slot: Slot };
+export type LineupEntry = PitchPlacement;
 
-/** The instruction half of a saved tactics row. */
+/**
+ * The instruction half of a saved tactics row.
+ *
+ * The newer instructions live in one jsonb column rather than as a dozen more
+ * smallints, because they are read and written as a set and never queried
+ * individually. `normaliseTactics` fills in whatever a given row predates, so a
+ * plan saved before an instruction existed loads with it at neutral.
+ */
 export function toTeamTactics(row: CareerTacticsRow): TeamTactics {
-  return {
+  const stored = (row.instructions ?? {}) as Partial<TeamTactics>;
+
+  return normaliseTactics({
+    ...stored,
     formation: row.formation as TeamTactics["formation"],
     mentality: row.mentality as TeamTactics["mentality"],
     pressing: row.pressing as TeamTactics["pressing"],
     tempo: row.tempo as TeamTactics["tempo"],
     width: row.width as TeamTactics["width"],
     directness: row.directness as TeamTactics["directness"],
+  });
+}
+
+/** The half of a plan that lives in the jsonb column. */
+export function toStoredInstructions(tactics: TeamTactics) {
+  return {
+    defensiveLine: tactics.defensiveLine,
+    closingDown: tactics.closingDown,
+    tackling: tactics.tackling,
+    offsideTrap: tactics.offsideTrap,
+    finalThird: tactics.finalThird,
+    passingFocus: tactics.passingFocus,
+    keeperDistribution: tactics.keeperDistribution,
+    setPieces: tactics.setPieces,
+    captainId: tactics.captainId,
   };
 }
 
-/** The stored lineup, which is jsonb and therefore untyped on the way out. */
+/**
+ * The stored lineup, which is jsonb and therefore untyped on the way out.
+ *
+ * Rows saved before the board became drag-and-drop carry no coordinates. Rather
+ * than reject them, the slot's own resting place is filled in, so an old team
+ * sheet opens as the shape it always was and can then be dragged about.
+ */
 export function toLineup(row: CareerTacticsRow): LineupEntry[] {
   const raw = row.lineup;
   if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (entry): entry is LineupEntry =>
-      typeof entry === "object" &&
-      entry !== null &&
-      typeof (entry as LineupEntry).playerId === "number" &&
-      typeof (entry as LineupEntry).slot === "string",
-  );
+
+  return raw
+    .filter(
+      (entry): entry is { playerId: number; slot: Slot; x?: unknown; y?: unknown } =>
+        typeof entry === "object" &&
+        entry !== null &&
+        typeof (entry as { playerId?: unknown }).playerId === "number" &&
+        typeof (entry as { slot?: unknown }).slot === "string",
+    )
+    .map((entry) => {
+      const home = SLOT_HOME[entry.slot] ?? { x: 50, y: 50 };
+      return {
+        playerId: entry.playerId,
+        slot: entry.slot,
+        x: typeof entry.x === "number" && Number.isFinite(entry.x) ? entry.x : home.x,
+        y: typeof entry.y === "number" && Number.isFinite(entry.y) ? entry.y : home.y,
+      };
+    });
 }
 
 export function toBench(row: CareerTacticsRow): number[] {

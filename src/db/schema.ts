@@ -288,7 +288,24 @@ export const careerTactics = pgTable("career_tactics", {
   tempo: smallint("tempo").notNull().default(3),
   width: smallint("width").notNull().default(3),
   directness: smallint("directness").notNull().default(3),
-  /** [{ slot, playerId }] for the eleven starters. */
+  /**
+   * The rest of the plan: defensive line, closing down, tackling, the offside
+   * trap, final third, passing focus, keeper distribution, set piece takers and
+   * the captain.
+   *
+   * One jsonb column rather than a dozen more smallints, because these are read
+   * and written as a whole plan and never queried individually. A row written
+   * before a given instruction existed simply lacks the key, and
+   * `normaliseTactics` fills it in at neutral on the way out.
+   */
+  instructions: jsonb("instructions"),
+  /**
+   * [{ playerId, slot, x, y }] for the eleven starters.
+   *
+   * The coordinates are what make the shape the manager's own: there is no
+   * formation to pick, so the arrangement itself is the formation and has to
+   * survive a save. Only `slot` reaches the simulation.
+   */
   lineup: jsonb("lineup").notNull(),
   /** Up to nine substitute player ids. */
   bench: jsonb("bench").notNull(),

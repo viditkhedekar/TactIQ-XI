@@ -11,7 +11,7 @@ import type {
   Slot,
   TeamTactics,
 } from "../types";
-import { FORMATIONS } from "../tactics";
+import { FORMATIONS, normaliseTactics } from "../tactics";
 
 let nextId = 1;
 
@@ -104,14 +104,13 @@ export function makeLineupPlayer(player: EnginePlayer, slot: Slot): LineupPlayer
   };
 }
 
-export const DEFAULT_TACTICS: TeamTactics = {
-  formation: "4-3-3",
-  mentality: 3,
-  pressing: 3,
-  tempo: 3,
-  width: 3,
-  directness: 3,
-};
+/**
+ * Neutral instructions for a test side. Built through `normaliseTactics` so a
+ * newly added instruction turns up here at its default automatically, rather
+ * than every factory needing an edit and the tests quietly drifting apart from
+ * what the engine actually defaults to.
+ */
+export const DEFAULT_TACTICS: TeamTactics = normaliseTactics({ formation: "4-3-3" });
 
 /** Natural position for each slot, so generated squads always fit properly. */
 const SLOT_POSITION: Record<Slot, Position> = {
