@@ -13,6 +13,7 @@ export async function POST() {
     const result = await quickSimMatchday(careerId);
     return NextResponse.json(result);
   } catch (error) {
+    console.error("POST /api/match/quick-sim failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not simulate the round" },
       { status: 400 },
