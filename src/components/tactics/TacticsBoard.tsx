@@ -1,142 +1,111 @@
 "use client";
 
+/**
+ * The tactics screen.
+ *
+ * The shape is not chosen, it is arranged: the manager drags the eleven around a
+ * pitch and the formation is read back out of where they end up. Everything else
+ * hangs off that board, and every control here also appears in the mid-match
+ * drawer, because a plan you cannot change at half time is only half a plan.
+ */
+
 import { useMemo, useState, useTransition } from "react";
 import { saveTacticsAction } from "@/app/actions";
-import { FORMATION_NAMES, type FormationName, type Slot } from "@/engine";
+import {
+  normaliseTactics,
+  type PitchPlacement,
+  type Slot,
+  type TacticalStyleName,
+  type TeamTactics,
+} from "@/engine";
+import { applyStyle } from "@/engine";
 import { Attr, AvailabilityIcon, Button, FitnessBar, Panel } from "@/components/ui/primitives";
-import { FORMATION_LAYOUT, SLOT_LABEL } from "./formationLayout";
+import { PitchBoard, type BoardPlayer } from "./PitchBoard";
+import {
+  InstructionChoices,
+  InstructionSliders,
+  SetPiecePanel,
+  StylePicker,
+} from "./InstructionPanels";
+import { SLOT_LABEL } from "./formationLayout";
 
-export type TacticsPlayer = {
-  id: number;
-  name: string;
+export type TacticsPlayer = BoardPlayer & {
   positions: string;
-  isGk: boolean;
-  overall: number;
-  fitness: number;
   form: number | null;
-  unavailable: "injured" | "suspended" | null;
-  fits: Record<Slot, number>;
 };
-
-type Instructions = {
-  mentality: number;
-  pressing: number;
-  tempo: number;
-  width: number;
-  directness: number;
-};
-
-export type TacticsState = Instructions & {
-  formation: FormationName;
-  lineup: { playerId: number; slot: Slot }[];
-  bench: number[];
-};
-
-const SLIDERS: {
-  key: keyof Instructions;
-  label: string;
-  labels: [string, string, string, string, string];
-}[] = [
-  {
-    key: "mentality",
-    label: "Mentality",
-    labels: ["Very defensive", "Defensive", "Balanced", "Positive", "Attacking"],
-  },
-  {
-    key: "pressing",
-    label: "Pressing",
-    labels: ["Stand off", "Low", "Medium", "High", "Relentless"],
-  },
-  { key: "tempo", label: "Tempo", labels: ["Very slow", "Slow", "Standard", "Fast", "Very fast"] },
-  { key: "width", label: "Width", labels: ["Very narrow", "Narrow", "Standard", "Wide", "Very wide"] },
-  {
-    key: "directness",
-    label: "Passing",
-    labels: ["Short", "Patient", "Mixed", "Direct", "Long ball"],
-  },
-];
-
-/** Colour for how well a player suits the slot they are in. */
-function fitColor(fit: number): string {
-  if (fit >= 0.99) return "var(--good)";
-  if (fit >= 0.85) return "var(--ok)";
-  return "var(--bad)";
-}
 
 export function TacticsBoard({
   players,
-  initial,
+  initialTactics,
+  initialLineup,
+  initialBench,
 }: {
   players: TacticsPlayer[];
-  initial: TacticsState;
+  initialTactics: TeamTactics;
+  initialLineup: PitchPlacement[];
+  initialBench: number[];
 }) {
-  const [state, setState] = useState<TacticsState>(initial);
-  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [tactics, setTactics] = useState<TeamTactics>(initialTactics);
+  const [lineup, setLineup] = useState<PitchPlacement[]>(initialLineup);
+  const [bench, setBench] = useState<number[]>(initialBench);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const byId = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
-  const layout = FORMATION_LAYOUT[state.formation];
-  const assigned = useMemo(
-    () => new Map(state.lineup.map((e) => [e.slot, e.playerId])),
-    [state.lineup],
-  );
-  const usedIds = useMemo(
-    () => new Set([...state.lineup.map((e) => e.playerId), ...state.bench]),
-    [state.lineup, state.bench],
-  );
+  const starterIds = useMemo(() => new Set(lineup.map((e) => e.playerId)), [lineup]);
 
-  /** Changing shape keeps whoever still has a slot and drops the rest. */
-  function changeFormation(formation: FormationName) {
-    const slots = FORMATION_LAYOUT[formation].map((s) => s.slot);
-    const kept = state.lineup.filter((e) => slots.includes(e.slot));
-    setState((prev) => ({ ...prev, formation, lineup: kept }));
-    setSelectedSlot(null);
+  function patch(change: Partial<TeamTactics>) {
+    setTactics((prev) => normaliseTactics({ ...prev, ...change }));
     setMessage(null);
   }
 
   /**
-   * Assigning a player to a slot. If they were already in the side, the two
-   * swap places rather than the player appearing twice.
+   * Puts a player into the side. If someone is selected on the pitch the two
+   * change places; otherwise he takes the spot of whoever is currently weakest
+   * there, which is almost never what is wanted, so the selection route is the
+   * one the interface pushes.
    */
-  function assign(slot: Slot, playerId: number) {
-    setState((prev) => {
-      const existingHere = prev.lineup.find((e) => e.slot === slot);
-      const existingElsewhere = prev.lineup.find((e) => e.playerId === playerId);
+  function bringIn(playerId: number) {
+    if (selectedId === null) {
+      setMessage({ text: "Pick a player on the pitch first, then choose his replacement", ok: false });
+      return;
+    }
 
-      let lineup = prev.lineup.filter((e) => e.slot !== slot && e.playerId !== playerId);
+    const target = lineup.find((e) => e.playerId === selectedId);
+    if (!target) return;
 
-      if (existingElsewhere && existingHere) {
-        lineup = [...lineup, { slot: existingElsewhere.slot, playerId: existingHere.playerId }];
-      }
+    const wasStarter = lineup.find((e) => e.playerId === playerId);
 
-      return {
-        ...prev,
-        lineup: [...lineup, { slot, playerId }],
-        bench: prev.bench.filter((id) => id !== playerId),
-      };
-    });
-    setSelectedSlot(null);
-    setMessage(null);
-  }
+    setLineup((prev) =>
+      prev.map((entry) => {
+        if (entry.playerId === selectedId) return { ...entry, playerId };
+        // A straight swap when the incoming player was already in the side.
+        if (wasStarter && entry.playerId === playerId) {
+          return { ...entry, playerId: selectedId };
+        }
+        return entry;
+      }),
+    );
 
-  function clearSlot(slot: Slot) {
-    setState((prev) => ({ ...prev, lineup: prev.lineup.filter((e) => e.slot !== slot) }));
+    // Coming off the pitch means going to the bench, and vice versa.
+    if (!wasStarter) {
+      setBench((prev) => [...prev.filter((id) => id !== playerId), selectedId].slice(0, 9));
+    }
+
+    setSelectedId(null);
     setMessage(null);
   }
 
   function toggleBench(playerId: number) {
-    setState((prev) => {
-      if (prev.bench.includes(playerId)) {
-        return { ...prev, bench: prev.bench.filter((id) => id !== playerId) };
-      }
-      if (prev.bench.length >= 9) return prev;
-      return {
-        ...prev,
-        bench: [...prev.bench, playerId],
-        lineup: prev.lineup.filter((e) => e.playerId !== playerId),
-      };
-    });
+    if (starterIds.has(playerId)) return;
+    setBench((prev) =>
+      prev.includes(playerId)
+        ? prev.filter((id) => id !== playerId)
+        : prev.length >= 9
+          ? prev
+          : [...prev, playerId],
+    );
     setMessage(null);
   }
 
@@ -144,7 +113,7 @@ export function TacticsBoard({
     setMessage(null);
     startTransition(async () => {
       const formData = new FormData();
-      formData.set("payload", JSON.stringify(state));
+      formData.set("payload", JSON.stringify({ ...tactics, lineup, bench }));
       const result = await saveTacticsAction(null, formData);
       setMessage(
         result?.error
@@ -154,218 +123,174 @@ export function TacticsBoard({
     });
   }
 
-  const emptySlots = layout.length - state.lineup.length;
+  const selected = selectedId !== null ? byId.get(selectedId) : null;
+  const selectedSlot = lineup.find((e) => e.playerId === selectedId)?.slot ?? null;
+  const squadForTakers = useMemo(
+    () =>
+      players
+        .filter((p) => starterIds.has(p.id) || bench.includes(p.id))
+        .map((p) => ({ id: p.id, name: p.name })),
+    [players, starterIds, bench],
+  );
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid gap-3 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)_minmax(0,320px)]">
+      {/* -------------------------------------------------------- the board */}
       <div className="space-y-3">
-        <Panel
-          title="Shape"
-          action={
+        <Panel>
+          <div className="p-3">
+            <PitchBoard
+              placements={lineup}
+              players={byId}
+              captainId={tactics.captainId}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onChange={(next) => {
+                setLineup(next);
+                setMessage(null);
+              }}
+            />
+          </div>
+        </Panel>
+
+        <Panel title="Captain">
+          <div className="p-3">
             <select
-              value={state.formation}
-              onChange={(e) => changeFormation(e.target.value as FormationName)}
-              className="rounded border border-[var(--border-strong)] bg-[var(--bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--accent)]"
+              value={tactics.captainId ?? ""}
+              onChange={(e) => patch({ captainId: e.target.value ? Number(e.target.value) : null })}
+              aria-label="Captain"
+              className="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--accent)]"
             >
-              {FORMATION_NAMES.map((name) => (
-                <option key={name} value={name}>
-                  {name}
+              <option value="">Nobody</option>
+              {squadForTakers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </select>
-          }
-        >
-          <div
-            className="relative mx-auto my-3 w-full max-w-[340px] overflow-hidden rounded"
-            style={{
-              aspectRatio: "68 / 105",
-              background: "var(--pitch)",
-              backgroundImage:
-                "repeating-linear-gradient(0deg, rgba(255,255,255,0.022) 0 8.5%, transparent 8.5% 17%)",
-            }}
-          >
-            <PitchMarkings />
-
-            {layout.map(({ slot, x, y }) => {
-              const playerId = assigned.get(slot);
-              const player = playerId ? byId.get(playerId) : undefined;
-              const isSelected = selectedSlot === slot;
-
-              return (
-                <button
-                  key={slot}
-                  type="button"
-                  onClick={() => setSelectedSlot(isSelected ? null : slot)}
-                  className={`absolute flex w-[68px] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded px-1 py-1 transition-colors ${
-                    isSelected ? "ring-2 ring-[var(--accent)]" : ""
-                  }`}
-                  style={{
-                    left: `${x}%`,
-                    top: `${y}%`,
-                    background: player ? "rgba(13,17,23,0.88)" : "rgba(13,17,23,0.55)",
-                  }}
-                >
-                  <span className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-dim)]">
-                    {SLOT_LABEL[slot]}
-                  </span>
-                  {player ? (
-                    <>
-                      <span className="w-full truncate text-[10px] font-medium leading-tight">
-                        {player.name}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span
-                          className="numeric text-[10px] font-semibold"
-                          style={{ color: fitColor(player.fits[slot]) }}
-                        >
-                          {player.overall}
-                        </span>
-                        {player.unavailable && <AvailabilityIcon reason={player.unavailable} />}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-[10px] text-[var(--text-dim)]">Empty</span>
-                  )}
-                </button>
-              );
-            })}
+            <p className="mt-1 text-[10px] leading-snug text-[var(--text-dim)]">
+              A composed captain steadies the side, most of all when you are behind. He does
+              nothing from the bench.
+            </p>
           </div>
-
-          {selectedSlot && (
-            <div className="border-t border-[var(--border)] px-3 py-2">
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
-                  Choose a player for {SLOT_LABEL[selectedSlot]}
-                </span>
-                {assigned.has(selectedSlot) && (
-                  <Button size="sm" variant="ghost" onClick={() => clearSlot(selectedSlot)}>
-                    Clear slot
-                  </Button>
-                )}
-              </div>
-              <SlotPicker
-                slot={selectedSlot}
-                players={players}
-                onPick={(id) => assign(selectedSlot, id)}
-              />
-            </div>
-          )}
         </Panel>
 
-        <Panel title="Instructions">
-          <div className="grid gap-x-6 gap-y-3 p-3 sm:grid-cols-2">
-            {SLIDERS.map((slider) => (
-              <div key={slider.key}>
-                <div className="mb-1 flex items-baseline justify-between">
-                  <span className="text-[var(--text-muted)]">{slider.label}</span>
-                  <span className="text-[11px] font-medium">
-                    {slider.labels[state[slider.key] - 1]}
-                  </span>
-                </div>
-                <div className="flex gap-px overflow-hidden rounded border border-[var(--border-strong)]">
-                  {[1, 2, 3, 4, 5].map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      title={slider.labels[value - 1]}
-                      onClick={() => {
-                        setState((prev) => ({ ...prev, [slider.key]: value }));
-                        setMessage(null);
-                      }}
-                      className={`h-6 flex-1 text-[10px] transition-colors ${
-                        state[slider.key] === value
-                          ? "bg-[var(--accent-dim)] text-white"
-                          : "bg-[var(--bg)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)]"
-                      }`}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+        <Panel title="Set pieces">
+          <SetPiecePanel tactics={tactics} squad={squadForTakers} onChange={patch} />
         </Panel>
       </div>
 
+      {/* -------------------------------------------------------- the squad */}
       <div className="space-y-3">
         <Panel
-          title="Substitutes"
+          title="Squad"
           action={
-            <span className="text-[11px] text-[var(--text-dim)]">{state.bench.length} of 9</span>
+            selected ? (
+              <span className="text-[11px] text-[var(--accent)]">
+                {selected.name} at {selectedSlot ? SLOT_LABEL[selectedSlot] : "?"}, pick a
+                replacement
+              </span>
+            ) : (
+              <span className="text-[11px] text-[var(--text-dim)]">
+                Tap a player on the pitch to swap him
+              </span>
+            )
           }
         >
-          <ul className="max-h-[220px] overflow-y-auto">
-            {state.bench.length === 0 && (
-              <li className="px-3 py-3 text-[var(--text-muted)]">
-                Pick substitutes from the squad list below.
-              </li>
-            )}
-            {state.bench.map((id) => {
-              const player = byId.get(id);
-              if (!player) return null;
-              return (
-                <li
-                  key={id}
-                  className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1 last:border-0"
-                >
-                  <span className="min-w-0 flex-1 truncate">{player.name}</span>
-                  <span className="text-[11px] text-[var(--text-dim)]">{player.positions}</span>
-                  <Attr value={player.overall} />
-                  <Button size="sm" variant="ghost" onClick={() => toggleBench(id)}>
-                    Remove
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="max-h-[560px] overflow-y-auto">
+            <table className="w-full text-left">
+              <thead className="sticky top-0 bg-[var(--bg-raised)]">
+                <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--text-dim)]">
+                  <th className="px-3 py-1.5 font-medium">Player</th>
+                  <th className="px-1 py-1.5 font-medium">Pos</th>
+                  <th className="px-1 py-1.5 text-right font-medium">Ovr</th>
+                  <th className="px-2 py-1.5 font-medium">Condition</th>
+                  <th className="px-1 py-1.5 text-center font-medium">Fit</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Bench</th>
+                </tr>
+              </thead>
+              <tbody>
+                {players.map((player) => {
+                  const starting = starterIds.has(player.id);
+                  const onBench = bench.includes(player.id);
+                  // How well he would suit the spot currently selected, which is
+                  // the only reason to be looking at this list.
+                  const fit = selectedSlot ? player.fits[selectedSlot] : null;
+
+                  return (
+                    <tr
+                      key={player.id}
+                      className={`border-b border-[var(--border)] last:border-0 ${
+                        starting ? "bg-[rgba(47,129,247,0.07)]" : ""
+                      } ${player.unavailable ? "opacity-50" : ""}`}
+                    >
+                      <td className="px-3 py-1">
+                        <button
+                          type="button"
+                          disabled={player.unavailable !== null || selectedId === null}
+                          onClick={() => bringIn(player.id)}
+                          className="flex items-center gap-1.5 text-left disabled:cursor-not-allowed hover:text-[var(--accent)] disabled:hover:text-[var(--text)]"
+                        >
+                          <span className="truncate">{player.name}</span>
+                          {tactics.captainId === player.id && (
+                            <span className="text-[9px] font-bold text-[var(--accent)]">C</span>
+                          )}
+                          <AvailabilityIcon reason={player.unavailable} />
+                        </button>
+                      </td>
+                      <td className="px-1 py-1 text-[10px] text-[var(--text-dim)]">
+                        {player.positions}
+                      </td>
+                      <td className="px-1 py-1 text-right">
+                        <Attr value={player.overall} />
+                      </td>
+                      <td className="px-2 py-1">
+                        <FitnessBar value={player.fitness} />
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        {fit === null ? (
+                          <span className="text-[var(--text-dim)]">-</span>
+                        ) : (
+                          <span
+                            className="numeric text-[11px]"
+                            style={{
+                              color:
+                                fit >= 0.99
+                                  ? "var(--good)"
+                                  : fit >= 0.85
+                                    ? "var(--ok)"
+                                    : "var(--bad)",
+                            }}
+                          >
+                            {Math.round(fit * 100)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1 text-right">
+                        <input
+                          type="checkbox"
+                          checked={onBench}
+                          disabled={starting || player.unavailable !== null}
+                          onChange={() => toggleBench(player.id)}
+                          aria-label={`${player.name} on the bench`}
+                          className="accent-[var(--accent)] disabled:opacity-30"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </Panel>
 
-        <Panel title="Squad">
-          <ul className="max-h-[420px] overflow-y-auto">
-            {players.map((player) => {
-              const inUse = usedIds.has(player.id);
-              return (
-                <li
-                  key={player.id}
-                  className={`flex items-center gap-2 border-b border-[var(--border)] px-3 py-1 last:border-0 ${
-                    inUse ? "opacity-45" : "hover:bg-[var(--bg-hover)]"
-                  }`}
-                >
-                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                    <span className="truncate">{player.name}</span>
-                    <AvailabilityIcon reason={player.unavailable} />
-                  </span>
-                  <span className="w-20 shrink-0 truncate text-[11px] text-[var(--text-dim)]">
-                    {player.positions}
-                  </span>
-                  <Attr value={player.overall} />
-                  <span className="w-16 shrink-0">
-                    <FitnessBar value={player.fitness} />
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={inUse || player.unavailable !== null}
-                    onClick={() => toggleBench(player.id)}
-                  >
-                    Bench
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        </Panel>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="primary" onClick={save} disabled={pending || emptySlots > 0}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" onClick={save} disabled={pending}>
             {pending ? "Saving..." : "Save team sheet"}
           </Button>
-          {emptySlots > 0 && (
-            <span className="text-[11px] text-[var(--ok)]">
-              {emptySlots} {emptySlots === 1 ? "position" : "positions"} still empty
-            </span>
-          )}
+          <span className="text-[11px] text-[var(--text-dim)]">
+            {lineup.length} on the pitch, {bench.length} on the bench
+          </span>
           {message && (
             <span
               className="text-[11px]"
@@ -376,75 +301,29 @@ export function TacticsBoard({
           )}
         </div>
       </div>
+
+      {/* ------------------------------------------------- the instructions */}
+      <div className="space-y-3">
+        <Panel>
+          <StylePicker
+            tactics={tactics}
+            compact
+            onApply={(style: TacticalStyleName) =>
+              setTactics((prev) => applyStyle(prev, style))
+            }
+          />
+        </Panel>
+
+        <Panel title="Instructions">
+          <InstructionSliders tactics={tactics} onChange={patch} />
+        </Panel>
+
+        <Panel title="In and out of possession">
+          <InstructionChoices tactics={tactics} onChange={patch} />
+        </Panel>
+      </div>
     </div>
   );
 }
 
-/** Squad list ordered by how well each player suits the chosen slot. */
-function SlotPicker({
-  slot,
-  players,
-  onPick,
-}: {
-  slot: Slot;
-  players: TacticsPlayer[];
-  onPick: (playerId: number) => void;
-}) {
-  const ranked = useMemo(
-    () =>
-      [...players]
-        .filter((p) => p.unavailable === null)
-        .sort((a, b) => b.overall * b.fits[slot] - a.overall * a.fits[slot]),
-    [players, slot],
-  );
-
-  return (
-    <ul className="max-h-52 overflow-y-auto rounded border border-[var(--border)]">
-      {ranked.map((player) => (
-        <li key={player.id}>
-          <button
-            type="button"
-            onClick={() => onPick(player.id)}
-            className="flex w-full items-center gap-2 border-b border-[var(--border)] px-2 py-1 text-left last:border-0 hover:bg-[var(--bg-hover)]"
-          >
-            <span className="min-w-0 flex-1 truncate">{player.name}</span>
-            <span className="w-20 shrink-0 truncate text-[11px] text-[var(--text-dim)]">
-              {player.positions}
-            </span>
-            <Attr value={player.overall} />
-            <span
-              className="numeric w-9 shrink-0 text-right text-[11px]"
-              style={{ color: fitColor(player.fits[slot]) }}
-              title="How well this player suits the position"
-            >
-              {Math.round(player.fits[slot] * 100)}%
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** Halfway line, centre circle and both penalty areas. */
-function PitchMarkings() {
-  const line = "var(--pitch-line)";
-  return (
-    <svg
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      viewBox="0 0 68 105"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <g fill="none" stroke={line} strokeWidth="0.4">
-        <rect x="1" y="1" width="66" height="103" />
-        <line x1="1" y1="52.5" x2="67" y2="52.5" />
-        <circle cx="34" cy="52.5" r="9.15" />
-        <rect x="13.85" y="1" width="40.3" height="16.5" />
-        <rect x="24.85" y="1" width="18.3" height="5.5" />
-        <rect x="13.85" y="87.5" width="40.3" height="16.5" />
-        <rect x="24.85" y="98.5" width="18.3" height="5.5" />
-      </g>
-    </svg>
-  );
-}
+export type { Slot };
