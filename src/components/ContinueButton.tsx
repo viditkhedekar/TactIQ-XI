@@ -20,7 +20,11 @@ export function ContinueButton() {
       const response = await fetch("/api/match/quick-sim", { method: "POST" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not simulate that round");
-      router.push("/career/fixtures");
+      router.push(
+        body.reportFixtureId
+          ? `/career/report?fixture=${body.reportFixtureId}`
+          : "/career/report",
+      );
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
