@@ -31,6 +31,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(result);
   } catch (error) {
+    console.error("POST /api/match/intervene failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not apply those changes" },
       { status: 400 },
