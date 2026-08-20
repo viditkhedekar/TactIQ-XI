@@ -15,6 +15,12 @@ import { sql } from "drizzle-orm";
 import { db } from "../src/db/client";
 import { clubs, players } from "../src/db/schema";
 import { PL_CLUBS } from "../src/data/clubs";
+import {
+  ALL_LOWER_CLUBS,
+  CHAMPIONSHIP_CLUB_IDS,
+  TIER_STRENGTH,
+} from "../src/data/lowerClubs";
+import { generateSquad } from "../src/data/generateSquad";
 import { parsePositions, num } from "../src/data/loadPlayers";
 
 type Row = Record<string, string>;
@@ -39,9 +45,15 @@ async function main(): Promise<void> {
 
   /* -------------------------------------------------------------------- clubs */
 
+  // The top flight plus everybody below it. The lower clubs have to exist here
+  // from the start rather than being created when a career first promotes one:
+  // careers reference clubs by id, and a club that appears halfway through a
+  // save would have no players and no history behind it.
+  const allClubs = [...PL_CLUBS, ...ALL_LOWER_CLUBS];
+
   await db
     .insert(clubs)
-    .values(PL_CLUBS)
+    .values(allClubs)
     .onConflictDoUpdate({
       target: clubs.id,
       set: {
@@ -52,7 +64,9 @@ async function main(): Promise<void> {
       },
     });
 
-  console.log(`Upserted ${PL_CLUBS.length} clubs`);
+  console.log(
+    `Upserted ${allClubs.length} clubs (${PL_CLUBS.length} top flight, ${ALL_LOWER_CLUBS.length} below)`,
+  );
 
   /* ------------------------------------------------------------------ players */
 
@@ -146,6 +160,34 @@ async function main(): Promise<void> {
     console.error("No players matched the Premier League club whitelist.");
     process.exit(1);
   }
+
+  /* ------------------------------------------------- invented lower squads */
+
+  /*
+   * Squads for the clubs below the top flight.
+   *
+   * Ids are laid out in fixed blocks of `ID_BLOCK` per club starting at
+   * `GENERATED_ID_BASE`, so a given club's players always occupy the same ids.
+   * That is what makes re-running the importer an upsert rather than a way to
+   * accumulate duplicate squads, and it keeps any career_player_state rows
+   * pointing at the players they were written for.
+   */
+  const GENERATED_ID_BASE = 900_000;
+  const ID_BLOCK = 100;
+
+  for (const [index, club] of ALL_LOWER_CLUBS.entries()) {
+    const tier = CHAMPIONSHIP_CLUB_IDS.includes(club.id)
+      ? TIER_STRENGTH.championship
+      : TIER_STRENGTH.lower;
+
+    values.push(
+      ...generateSquad(club.id, tier.mean, tier.spread, GENERATED_ID_BASE + index * ID_BLOCK),
+    );
+  }
+
+  console.log(
+    `Generated ${values.length - seen.size} players for ${ALL_LOWER_CLUBS.length} lower clubs`,
+  );
 
   // Every non-key column is refreshed, so a re-import picks up corrected data.
   const updateSet = Object.fromEntries(
