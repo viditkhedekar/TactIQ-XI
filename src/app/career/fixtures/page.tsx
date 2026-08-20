@@ -12,7 +12,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {
 
 export default async function FixturesPage() {
   const { career } = await requireCareer();
-  const all = await loadFixtures(career.id);
+  const all = await loadFixtures(career.id, career.season);
 
   const byRound = new Map<number, typeof all>();
   for (const fixture of all) {

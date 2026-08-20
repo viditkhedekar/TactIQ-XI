@@ -23,6 +23,8 @@ export default async function MatchPage() {
     .where(
       and(
         eq(fixtures.careerId, career.id),
+        eq(fixtures.season, career.season),
+        eq(fixtures.competition, "league"),
         eq(fixtures.round, career.currentRound),
         or(eq(fixtures.homeClubId, career.clubId), eq(fixtures.awayClubId, career.clubId)),
       ),

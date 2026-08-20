@@ -7,10 +7,13 @@ const LINKS = [
   { href: "/career/squad", label: "Squad" },
   { href: "/career/tactics", label: "Tactics" },
   { href: "/career/training", label: "Training" },
+  { href: "/career/development", label: "Development" },
   { href: "/career/transfers", label: "Transfers" },
   { href: "/career/report", label: "Match report" },
   { href: "/career/fixtures", label: "Fixtures" },
   { href: "/career/table", label: "Table" },
+  { href: "/career/board", label: "Boardroom" },
+  { href: "/career/honours", label: "Honours" },
   { href: "/career/stats", label: "Statistics" },
 ];
 

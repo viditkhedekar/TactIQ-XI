@@ -7,9 +7,10 @@
  * would.
  */
 
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { careerPlayerState, clubs, fixtures, players } from "@/db/schema";
+import { fixturesInSeason, loadDivision } from "./seasonService";
 
 export type TableRow = {
   clubId: number;
@@ -27,9 +28,14 @@ export type TableRow = {
   form: ("W" | "D" | "L")[];
 };
 
-export async function loadTable(careerId: string): Promise<TableRow[]> {
+export async function loadTable(careerId: string, season: number): Promise<TableRow[]> {
+  // Only the clubs actually in this season's division, and only this season's
+  // league games. Without both filters the table would include every club in
+  // the database and every result the save has ever produced.
+  const division = await loadDivision(careerId, season);
+
   const [clubRows, finished] = await Promise.all([
-    db.select().from(clubs).orderBy(asc(clubs.name)),
+    db.select().from(clubs).where(inArray(clubs.id, division)).orderBy(asc(clubs.name)),
     db
       .select({
         round: fixtures.round,
@@ -39,7 +45,13 @@ export async function loadTable(careerId: string): Promise<TableRow[]> {
         awayGoals: fixtures.awayGoals,
       })
       .from(fixtures)
-      .where(and(eq(fixtures.careerId, careerId), eq(fixtures.status, "finished")))
+      .where(
+        and(
+          fixturesInSeason(careerId, season),
+          eq(fixtures.competition, "league"),
+          eq(fixtures.status, "finished"),
+        ),
+      )
       .orderBy(asc(fixtures.round)),
   ]);
 
@@ -187,7 +199,10 @@ export type FixtureListRow = {
 };
 
 /** Every fixture in the season, with both clubs resolved. */
-export async function loadFixtures(careerId: string): Promise<FixtureListRow[]> {
+export async function loadFixtures(
+  careerId: string,
+  season: number,
+): Promise<FixtureListRow[]> {
   const home = clubs;
   const rows = await db
     .select({
@@ -207,7 +222,7 @@ export async function loadFixtures(careerId: string): Promise<FixtureListRow[]> 
     .from(fixtures)
     .innerJoin(home, eq(home.id, fixtures.homeClubId))
     .innerJoin(sql`${clubs} as away`, sql`away.id = ${fixtures.awayClubId}`)
-    .where(eq(fixtures.careerId, careerId))
+    .where(fixturesInSeason(careerId, season))
     .orderBy(asc(fixtures.round), asc(home.name));
 
   return rows;
@@ -216,9 +231,10 @@ export async function loadFixtures(careerId: string): Promise<FixtureListRow[]> 
 /** Results already played, most recent first. */
 export async function loadRecentResults(
   careerId: string,
+  season: number,
   limit = 20,
 ): Promise<FixtureListRow[]> {
-  const all = await loadFixtures(careerId);
+  const all = await loadFixtures(careerId, season);
   return all
     .filter((f) => f.status === "finished")
     .sort((a, b) => b.round - a.round)

@@ -15,7 +15,7 @@ function positionAccent(position: number): string | undefined {
 
 export default async function TablePage() {
   const { career } = await requireCareer();
-  const table = await loadTable(career.id);
+  const table = await loadTable(career.id, career.season);
   const played = table.reduce((sum, row) => sum + row.played, 0) > 0;
 
   return (

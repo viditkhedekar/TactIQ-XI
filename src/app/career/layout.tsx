@@ -10,6 +10,7 @@ import { db } from "@/db/client";
 import { clubs, fixtures } from "@/db/schema";
 import { requireCareer } from "@/lib/session";
 import { ClubDot, Button } from "@/components/ui/primitives";
+import { ROUNDS_IN_SEASON } from "@/engine";
 import { CareerNav } from "@/components/CareerNav";
 import { ContinueButton } from "@/components/ContinueButton";
 import { signOutAction } from "@/app/actions";
@@ -22,10 +23,16 @@ export default async function CareerLayout({
   children: React.ReactNode;
 }) {
   const { career, club } = await requireCareer();
-  const seasonOver = career.currentRound > 38;
+
+  // The two states where the game loop stops and the manager has something to
+  // deal with instead. Both replace the Continue button rather than sitting
+  // alongside it: there is nothing to continue to until they are resolved.
+  const seasonOver = career.phase === "season_over";
+  const sacked = career.phase === "sacked";
+  const noFixturesLeft = career.currentRound > ROUNDS_IN_SEASON;
 
   // The manager's next fixture, for the header.
-  const next = seasonOver
+  const next = seasonOver || sacked
     ? []
     : await db
         .select({
@@ -43,6 +50,8 @@ export default async function CareerLayout({
         .where(
           and(
             eq(fixtures.careerId, career.id),
+            eq(fixtures.season, career.season),
+            eq(fixtures.competition, "league"),
             eq(fixtures.round, career.currentRound),
             or(eq(fixtures.homeClubId, career.clubId), eq(fixtures.awayClubId, career.clubId)),
           ),
@@ -81,8 +90,10 @@ export default async function CareerLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--bg-raised)] px-4 py-2.5">
           <div className="min-w-0">
-            {seasonOver ? (
-              <p className="font-medium">The season is complete</p>
+            {sacked ? (
+              <p className="font-medium text-[var(--bad)]">You are out of a job</p>
+            ) : seasonOver ? (
+              <p className="font-medium">Season {career.season} is complete</p>
             ) : fixture ? (
               <p className="truncate">
                 <span className="text-[var(--text-dim)]">Round {career.currentRound} </span>
@@ -98,7 +109,23 @@ export default async function CareerLayout({
             )}
           </div>
 
-          {!seasonOver && <ContinueButton />}
+          {sacked ? (
+            <Link
+              href="/career/board"
+              className="rounded border border-[var(--bad)] px-3 py-1.5 text-[12px] font-medium text-[var(--bad)] transition-colors hover:bg-[rgba(248,81,73,0.12)]"
+            >
+              See who wants you
+            </Link>
+          ) : seasonOver ? (
+            <Link
+              href="/career/season"
+              className="rounded border border-[var(--accent)] bg-[var(--accent-dim)] px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-[var(--accent)]"
+            >
+              Season review
+            </Link>
+          ) : noFixturesLeft ? null : (
+            <ContinueButton />
+          )}
         </header>
 
         <main className="min-w-0 flex-1 p-4">{children}</main>
