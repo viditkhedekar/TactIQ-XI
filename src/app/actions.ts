@@ -41,6 +41,20 @@ import {
 
 export type ActionState = { error?: string } | null;
 
+/**
+ * Marks every career screen stale.
+ *
+ * Anything that moves the game on changes more than the page it happened on: a
+ * completed transfer changes the budget, both squads, and the header. Listing
+ * individual paths meant the layout was never revalidated at all, which is why
+ * the header kept showing the round that had just been played. Revalidating the
+ * whole subtree is both correct and impossible to under-specify by forgetting a
+ * path.
+ */
+function revalidateCareer(): void {
+  revalidatePath("/career", "layout");
+}
+
 /** Starts a new career, or resumes the one belonging to this username. */
 export async function startCareerAction(
   _prev: ActionState,
@@ -128,8 +142,7 @@ export async function saveTacticsAction(
     parsed.data.bench,
   );
 
-  revalidatePath("/career/tactics");
-  revalidatePath("/career/squad");
+  revalidateCareer();
   return null;
 }
 
@@ -150,8 +163,7 @@ export async function setTrainingFocusAction(focus: string): Promise<ActionState
   const current = await loadTrainingPlan(career.id);
   await saveTrainingPlan(career.id, focus, current.intensity);
 
-  revalidatePath("/career/training");
-  revalidatePath("/career/report");
+  revalidateCareer();
   return null;
 }
 
@@ -173,7 +185,7 @@ export async function saveTrainingAction(
     parsed.data.intensity as TrainingIntensity,
   );
 
-  revalidatePath("/career/training");
+  revalidateCareer();
   return null;
 }
 
@@ -197,7 +209,7 @@ export async function setIndividualFocusAction(
   }
 
   await setIndividualFocus(career.id, playerId, focus);
-  revalidatePath("/career/training");
+  revalidateCareer();
   return null;
 }
 
@@ -227,7 +239,7 @@ export async function makeOfferAction(
     parsed.data.wageEur,
   );
 
-  revalidatePath("/career/transfers");
+  revalidateCareer();
   if (!result.ok) return { error: result.error };
   return { message: "Bid submitted. They will respond next round." };
 }
@@ -235,15 +247,14 @@ export async function makeOfferAction(
 export async function withdrawOfferAction(offerId: string): Promise<OfferState> {
   const { career } = await requireCareer();
   await withdrawOffer(career.id, offerId);
-  revalidatePath("/career/transfers");
+  revalidateCareer();
   return { message: "Bid withdrawn" };
 }
 
 export async function acceptCounterAction(offerId: string): Promise<OfferState> {
   const { career } = await requireCareer();
   const result = await acceptCounter(career.id, offerId, career.currentRound);
-  revalidatePath("/career/transfers");
-  revalidatePath("/career/squad");
+  revalidateCareer();
   return result.ok ? { message: result.message } : { error: result.message };
 }
 
@@ -253,7 +264,6 @@ export async function respondToOfferAction(
 ): Promise<OfferState> {
   const { career } = await requireCareer();
   const result = await respondToIncoming(career.id, offerId, accept, career.currentRound);
-  revalidatePath("/career/transfers");
-  revalidatePath("/career/squad");
+  revalidateCareer();
   return result.ok ? { message: result.message } : { error: result.message };
 }

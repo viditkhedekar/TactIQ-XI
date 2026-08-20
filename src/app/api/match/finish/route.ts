@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { finishMatchday } from "@/lib/matchService";
 import { getCareerId } from "@/lib/session";
 
@@ -10,7 +11,13 @@ export async function POST() {
   }
 
   try {
-    return NextResponse.json(await finishMatchday(careerId));
+    const result = await finishMatchday(careerId);
+    // Settling a round changes the header's fixture, every squad's fitness, the
+    // table and the budgets. Without this the manager had to reload before the
+    // next match could be started, because the client kept serving the cached
+    // layout from before the round was played.
+    revalidatePath("/career", "layout");
+    return NextResponse.json(result);
   } catch (error) {
     console.error("POST /api/match/finish failed:", error);
     return NextResponse.json(

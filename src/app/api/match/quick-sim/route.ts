@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { quickSimMatchday } from "@/lib/matchService";
 import { getCareerId } from "@/lib/session";
 
@@ -11,6 +12,9 @@ export async function POST() {
 
   try {
     const result = await quickSimMatchday(careerId);
+    // See the finish route: the whole career subtree is stale once a round has
+    // been played, not just the page the button was on.
+    revalidatePath("/career", "layout");
     return NextResponse.json(result);
   } catch (error) {
     console.error("POST /api/match/quick-sim failed:", error);
