@@ -28,6 +28,7 @@ import {
 import {
   DISCIPLINE,
   aiMinuteHook,
+  analyseMatch,
   applyIntervention,
   buildMatchResult,
   chooseFormation,
@@ -51,6 +52,8 @@ import {
 } from "@/engine";
 import { toBench, toEnginePlayer, toLineup, toTeamTactics } from "./engineAdapter";
 import { loadSquads } from "./careerService";
+import { computeWeeklyTraining, loadTrainingPlan, saveTrainingReport } from "./trainingService";
+import { processTransferRound } from "./transferService";
 
 /* --------------------------------------------------------------- assembling */
 
@@ -605,6 +608,8 @@ export type FinishResult = {
   otherResults: { fixtureId: string; homeClubId: number; awayClubId: number; homeGoals: number; awayGoals: number }[];
   nextRound: number;
   seasonComplete: boolean;
+  /** The fixture whose report the manager should be shown next. */
+  reportFixtureId: string;
 };
 
 /**
@@ -627,20 +632,24 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
     .where(eq(matchEvents.fixtureId, live.fixtureId))
     .orderBy(asc(matchEvents.seq));
 
-  const userResult = buildMatchResult(
-    state,
-    storedEvents.map((row) => ({
-      seq: row.seq,
-      minute: row.minute,
-      addedTime: row.addedTime,
-      type: row.type as MatchEvent["type"],
-      clubId: row.clubId,
-      playerId: row.playerId,
-      secondPlayerId: row.secondPlayerId,
-      commentary: row.commentary,
-      data: row.data as MatchEvent["data"],
-    })),
-  );
+  const userEvents: MatchEvent[] = storedEvents.map((row) => ({
+    seq: row.seq,
+    minute: row.minute,
+    addedTime: row.addedTime,
+    type: row.type as MatchEvent["type"],
+    clubId: row.clubId,
+    playerId: row.playerId,
+    secondPlayerId: row.secondPlayerId,
+    commentary: row.commentary,
+    data: row.data as MatchEvent["data"],
+  }));
+
+  const userResult = buildMatchResult(state, userEvents);
+
+  // Built here, while the finished match state is still in hand. The live state
+  // is deleted at the end of this function, and rebuilding it later would mean
+  // re-simulating the whole match.
+  const report = analyseMatch(state, userEvents, career.clubId);
 
   // The other nine fixtures of the round.
   const otherFixtures = await db
@@ -698,22 +707,58 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
     [...userResult.players, ...otherResults.flatMap((r) => r.players)].map((p) => p.playerId),
   );
 
+  const plan = await loadTrainingPlan(careerId);
+
   await db.transaction(async (tx) => {
     await applyMatchResult(tx, careerId, userResult, round);
     for (const result of otherResults) await applyMatchResult(tx, careerId, result, round);
 
-    // A week of recovery. Players who did not feature recover more.
+    // The manager's report, kept on the fixture so the screen can read it back
+    // without the match state.
+    await tx
+      .update(fixtures)
+      .set({ report })
+      .where(eq(fixtures.id, live.fixtureId));
+
+    // Training is worked out after the match results land, so a player injured
+    // this afternoon is correctly left out of the week's work.
+    const week = await computeWeeklyTraining(tx, careerId, career.clubId, round, plan);
+    await saveTrainingReport(tx, careerId, round, plan, week);
+
+    // A week of recovery. Players who did not feature recover more, and
+    // whatever the week's training cost comes back off the top: the days
+    // between matches are either rest or work, not both.
     const states = await tx
       .select()
       .from(careerPlayerState)
       .where(eq(careerPlayerState.careerId, careerId));
 
     for (const row of states) {
-      const recovered = recoverFitness(row.fitness, playedIds.has(row.playerId));
-      if (Math.abs(recovered - row.fitness) < 0.01) continue;
+      const training = week.byPlayer.get(row.playerId);
+      const recovered = Math.max(
+        0,
+        recoverFitness(row.fitness, playedIds.has(row.playerId)) - (training?.fitnessCost ?? 0),
+      );
+
+      const unchanged = Math.abs(recovered - row.fitness) < 0.01;
+      if (unchanged && !training) continue;
+
       await tx
         .update(careerPlayerState)
-        .set({ fitness: recovered })
+        .set({
+          fitness: recovered,
+          ...(training
+            ? {
+                attributeDeltas: training.attributeDeltas,
+                ...(training.injuryOutRounds !== null
+                  ? {
+                      injuredUntilRound: round + training.injuryOutRounds,
+                      injuryType: "training",
+                    }
+                  : {}),
+              }
+            : {}),
+        })
         .where(
           and(
             eq(careerPlayerState.careerId, careerId),
@@ -721,6 +766,10 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
           ),
         );
     }
+
+    // The market moves on the same tick, so bids put in this round get their
+    // answer as the manager clicks through to the next one.
+    await processTransferRound(tx, careerId, career.clubId, round + 1);
 
     await tx.delete(liveMatchState).where(eq(liveMatchState.fixtureId, live.fixtureId));
     await tx
@@ -740,6 +789,7 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
     })),
     nextRound: round + 1,
     seasonComplete: round + 1 > 38,
+    reportFixtureId: live.fixtureId,
   };
 }
 
