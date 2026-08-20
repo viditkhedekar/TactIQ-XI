@@ -88,9 +88,17 @@ export function TacticsBoard({
       }),
     );
 
-    // Coming off the pitch means going to the bench, and vice versa.
+    // Coming off the pitch means going to the bench, and vice versa. An
+    // injured or suspended man is dropped from the squad entirely instead: a
+    // substitute has to be available too, so putting him on the bench would
+    // leave the team sheet just as illegal while looking like it had been
+    // fixed.
     if (!wasStarter) {
-      setBench((prev) => [...prev.filter((id) => id !== playerId), selectedId].slice(0, 9));
+      const droppedIsAvailable = byId.get(selectedId)?.unavailable === null;
+      setBench((prev) => {
+        const without = prev.filter((id) => id !== playerId);
+        return droppedIsAvailable ? [...without, selectedId].slice(0, 9) : without;
+      });
     }
 
     setSelectedId(null);
