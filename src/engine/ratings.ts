@@ -10,7 +10,7 @@
  * slot, how fresh they are, and what sort of run they are on.
  */
 
-import { FATIGUE, FORM, HOME_ADVANTAGE } from "./constants";
+import { CAPTAIN, FATIGUE, FORM, HOME_ADVANTAGE } from "./constants";
 import type { EnginePlayer, LineupPlayer, MatchSide, Position, Slot } from "./types";
 
 /** Which natural positions play each slot without penalty. */
@@ -112,6 +112,32 @@ export function effectiveness(lp: LineupPlayer): number {
   return (
     positionFit(lp.player, lp.slot) * fitnessMultiplier(lp.fitness) * formMultiplier(lp.player.form)
   );
+}
+
+/**
+ * What the armband is worth to the rest of the side.
+ *
+ * Deliberately small. A captain who swung matches would be a hidden fudge that
+ * made the team sheet lie about where results come from, and one who did
+ * nothing would make the armband a decoration. This is a nudge, largest when a
+ * composed captain is on the pitch and the side is behind and needs settling,
+ * and it is worth nothing at all once he has been substituted or sent off.
+ */
+export function captainBonus(side: MatchSide, goalDifference: number): number {
+  const captainId = side.tactics.captainId;
+  if (captainId === null) return 1;
+
+  const captain = side.onPitch.find((lp) => lp.player.id === captainId && !lp.sentOff);
+  if (!captain) return 1;
+
+  const above = captain.player.composure - CAPTAIN.composurePivot;
+  if (above <= 0) return 1;
+
+  // Composure of 100 against a pivot of 70 is a full-strength captain.
+  const strength = Math.min(1, above / 30);
+  const situational = goalDifference < 0 ? CAPTAIN.behindMultiplier : 1;
+
+  return 1 + strength * CAPTAIN.maxTeamBonus * situational;
 }
 
 type Weighted = { attr: keyof EnginePlayer; weight: number };
@@ -277,7 +303,12 @@ export type TeamRatings = {
   goalkeeping: number;
 };
 
-export function computeTeamRatings(side: MatchSide): TeamRatings {
+/**
+ * `goalDifference` is from this side's point of view, and is only used for the
+ * captain, who steadies a side more when it is chasing a game than when it is
+ * cruising.
+ */
+export function computeTeamRatings(side: MatchSide, goalDifference = 0): TeamRatings {
   const onPitch = side.onPitch;
   const gk = onPitch.find((lp) => lp.slot === "GK" && !lp.sentOff);
 
@@ -297,14 +328,18 @@ export function computeTeamRatings(side: MatchSide): TeamRatings {
       : 50;
 
   const awayPenalty = side.isHome ? 1 : HOME_ADVANTAGE.awayCompositePenalty;
+  // One multiplier applied to every unit, so the armband settles the whole side
+  // rather than mysteriously improving only the defence.
+  const armband = captainBonus(side, goalDifference);
+  const scale = awayPenalty * armband;
 
   return {
-    midfield: unitRating(onPitch, MIDFIELD_SHARE, MIDFIELD_ATTRS) * awayPenalty,
-    attackCentral: unitRating(onPitch, ATTACK_CENTRAL_SHARE, ATTACK_CENTRAL_ATTRS) * awayPenalty,
-    attackWide: unitRating(onPitch, ATTACK_WIDE_SHARE, ATTACK_WIDE_ATTRS) * awayPenalty,
-    defence: unitRating(onPitch, DEFENCE_SHARE, DEFENCE_ATTRS) * awayPenalty,
+    midfield: unitRating(onPitch, MIDFIELD_SHARE, MIDFIELD_ATTRS) * scale,
+    attackCentral: unitRating(onPitch, ATTACK_CENTRAL_SHARE, ATTACK_CENTRAL_ATTRS) * scale,
+    attackWide: unitRating(onPitch, ATTACK_WIDE_SHARE, ATTACK_WIDE_ATTRS) * scale,
+    defence: unitRating(onPitch, DEFENCE_SHARE, DEFENCE_ATTRS) * scale,
     defLinePace,
-    goalkeeping: goalkeeping * awayPenalty,
+    goalkeeping: goalkeeping * scale,
   };
 }
 
