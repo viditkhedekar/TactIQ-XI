@@ -8,7 +8,15 @@
  */
 
 import { z } from "zod";
-import { FORMATION_NAMES, isTrainingFocus } from "@/engine";
+import {
+  CORNER_DELIVERY_OPTIONS,
+  FINAL_THIRD_OPTIONS,
+  FORMATION_NAMES,
+  KEEPER_DISTRIBUTION_OPTIONS,
+  PASSING_FOCUS_OPTIONS,
+  isTrainingFocus,
+  isValidPlacement,
+} from "@/engine";
 import { PL_CLUB_IDS } from "@/data/clubs";
 
 /** Doubles as the login, so it has to be readable and unambiguous. */
@@ -41,22 +49,61 @@ export const SLOT_VALUES = [
 
 export const slotSchema = z.enum(SLOT_VALUES);
 
-export const lineupEntrySchema = z.object({
-  playerId: z.number().int().positive(),
-  slot: slotSchema,
+/**
+ * A player and where he is standing.
+ *
+ * The coordinates are checked against the anchor list rather than merely being
+ * numbers in range, because a placement that is not on an anchor has no
+ * recognised role behind it, and the whole simulation reads the role.
+ */
+export const lineupEntrySchema = z
+  .object({
+    playerId: z.number().int().positive(),
+    slot: slotSchema,
+    x: z.number().min(0).max(100),
+    y: z.number().min(0).max(100),
+  })
+  .refine(isValidPlacement, "That is not a position on the pitch");
+
+const setPiecesSchema = z.object({
+  corners: z.number().int().positive().nullable(),
+  freeKicks: z.number().int().positive().nullable(),
+  penalties: z.number().int().positive().nullable(),
+  throwIns: z.number().int().positive().nullable(),
+  cornerDelivery: z.enum(CORNER_DELIVERY_OPTIONS),
 });
 
 export const tacticsSchema = z
   .object({
+    // Still accepted and stored, but no longer chosen: the shape comes from
+    // where the eleven are standing. Kept so the AI's own templates and any
+    // team sheet written before the board became draggable still round-trip.
     formation: z.enum(FORMATION_NAMES as [string, ...string[]]),
     mentality: instructionSchema,
     pressing: instructionSchema,
     tempo: instructionSchema,
     width: instructionSchema,
     directness: instructionSchema,
+    defensiveLine: instructionSchema,
+    closingDown: instructionSchema,
+    tackling: instructionSchema,
+    offsideTrap: z.boolean(),
+    finalThird: z.enum(FINAL_THIRD_OPTIONS),
+    passingFocus: z.enum(PASSING_FOCUS_OPTIONS),
+    keeperDistribution: z.enum(KEEPER_DISTRIBUTION_OPTIONS),
+    setPieces: setPiecesSchema,
+    captainId: z.number().int().positive().nullable(),
     lineup: z.array(lineupEntrySchema).length(11, "Name exactly eleven players"),
     bench: z.array(z.number().int().positive()).max(9, "The bench holds nine at most"),
   })
+  .refine(
+    (t) => {
+      // Two players cannot occupy the same spot on the board.
+      const spots = t.lineup.map((e) => `${e.x}:${e.y}`);
+      return new Set(spots).size === spots.length;
+    },
+    { message: "Two players are standing in the same place", path: ["lineup"] },
+  )
   .refine(
     (t) => new Set(t.lineup.map((e) => e.playerId)).size === 11,
     { message: "A player cannot fill two positions", path: ["lineup"] },
@@ -85,6 +132,13 @@ export const substitutionSchema = z.object({
 export const interventionSchema = z.object({
   /** The minute the manager was watching when they paused. */
   atMinute: z.number().int().min(0).max(120),
+  /**
+   * Everything is optional, and everything a manager can set before kick off
+   * can also be changed during the match. Half time is exactly when a manager
+   * wants to drop the line, stop stepping up, or put someone else on penalties,
+   * so restricting this to the original five sliders would have made the
+   * pre-match screen the only place most of the plan existed.
+   */
   tactics: z
     .object({
       formation: z.enum(FORMATION_NAMES as [string, ...string[]]).optional(),
@@ -93,8 +147,23 @@ export const interventionSchema = z.object({
       tempo: instructionSchema.optional(),
       width: instructionSchema.optional(),
       directness: instructionSchema.optional(),
+      defensiveLine: instructionSchema.optional(),
+      closingDown: instructionSchema.optional(),
+      tackling: instructionSchema.optional(),
+      offsideTrap: z.boolean().optional(),
+      finalThird: z.enum(FINAL_THIRD_OPTIONS).optional(),
+      passingFocus: z.enum(PASSING_FOCUS_OPTIONS).optional(),
+      keeperDistribution: z.enum(KEEPER_DISTRIBUTION_OPTIONS).optional(),
+      setPieces: setPiecesSchema.optional(),
+      captainId: z.number().int().positive().nullable().optional(),
     })
     .optional(),
+  /**
+   * Moving players around the pitch mid-match. Partial, because a manager
+   * shuffling to a back three at half time changes some placements and not
+   * others, and the ones he did not touch should stay where they are.
+   */
+  placements: z.array(lineupEntrySchema).max(11).optional(),
   subs: z.array(substitutionSchema).max(5).optional(),
 });
 
