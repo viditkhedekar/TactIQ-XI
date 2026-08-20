@@ -63,19 +63,22 @@ export const PITCH_ANCHORS: PitchAnchor[] = [
   { slot: "LM", x: 10, y: 45 },
   { slot: "RM", x: 90, y: 45 },
 
-  // Attacking midfield.
-  { slot: "CAM", x: 31, y: 33 },
-  { slot: "CAM", x: 50, y: 32 },
-  { slot: "CAM", x: 69, y: 33 },
+  // Attacking midfield. The wide pair sit level with the central three, which
+  // is what lets a front four be built as a band rather than as a staircase.
+  { slot: "LW", x: 12, y: 34 },
+  { slot: "CAM", x: 31, y: 34 },
+  { slot: "CAM", x: 50, y: 34 },
+  { slot: "CAM", x: 69, y: 34 },
+  { slot: "RW", x: 88, y: 34 },
 
-  // Wingers.
-  { slot: "LW", x: 9, y: 24 },
-  { slot: "RW", x: 91, y: 24 },
+  // Wingers, high and wide.
+  { slot: "LW", x: 9, y: 22 },
+  { slot: "RW", x: 91, y: 22 },
 
   // Forwards.
-  { slot: "LST", x: 34, y: 15 },
-  { slot: "ST", x: 50, y: 13 },
-  { slot: "RST", x: 66, y: 15 },
+  { slot: "LST", x: 34, y: 14 },
+  { slot: "ST", x: 50, y: 14 },
+  { slot: "RST", x: 66, y: 14 },
 ];
 
 /**
@@ -102,44 +105,38 @@ function distance(a: { x: number; y: number }, b: { x: number; y: number }): num
 }
 
 /**
- * The anchor a drop lands on.
+ * The anchor a drop lands on: simply the nearest one.
  *
- * `occupied` are the anchors already taken, which are avoided so that dropping
- * a player near a crowded area finds him his own spot rather than stacking two
- * markers on top of each other. If every nearby anchor is taken the nearest one
- * is returned anyway and the caller swaps the two players over, which is what a
- * manager dragging one man onto another almost always means.
+ * An earlier version tried to be clever and steer drops away from anchors that
+ * were already taken, which made the behaviour impossible to predict from where
+ * the cursor was. Dropping a player onto a teammate is not a mistake to be
+ * routed around, it is a swap, and it is the caller's job to notice the target
+ * is occupied and exchange the two. Nearest-anchor is what a manager can
+ * actually aim at.
  */
-export function snapToAnchor(
-  point: { x: number; y: number },
-  occupied: readonly { x: number; y: number }[] = [],
-): PitchAnchor {
-  const taken = new Set(occupied.map((p) => `${Math.round(p.x)}:${Math.round(p.y)}`));
-
-  let bestFree: PitchAnchor | null = null;
-  let bestFreeDistance = Infinity;
+export function snapToAnchor(point: { x: number; y: number }): PitchAnchor {
   let nearest = PITCH_ANCHORS[0];
   let nearestDistance = Infinity;
 
   for (const anchor of PITCH_ANCHORS) {
     const d = distance(point, anchor);
-
     if (d < nearestDistance) {
       nearest = anchor;
       nearestDistance = d;
     }
-
-    if (!taken.has(`${anchor.x}:${anchor.y}`) && d < bestFreeDistance) {
-      bestFree = anchor;
-      bestFreeDistance = d;
-    }
   }
 
-  // A free anchor is preferred, but not at any distance: dropping a man
-  // directly onto a teammate should read as a swap, not as a shove to the
-  // nearest empty patch of grass.
-  if (bestFree && bestFreeDistance <= nearestDistance + 12) return bestFree;
   return nearest;
+}
+
+/** The anchor at a placement, if that spot is taken. */
+export function anchorAt(
+  placements: readonly PitchPlacement[],
+  anchor: { x: number; y: number },
+): PitchPlacement | null {
+  return (
+    placements.find((p) => Math.abs(p.x - anchor.x) < 0.5 && Math.abs(p.y - anchor.y) < 0.5) ?? null
+  );
 }
 
 /** Whether a placement sits on a recognised anchor. */
@@ -155,7 +152,7 @@ export function isValidPlacement(placement: { slot: Slot; x: number; y: number }
 /* ----------------------------------------------------------- shape reading */
 
 /** Gap in percent up the pitch that separates one band of players from the next. */
-const BAND_GAP = 9;
+const BAND_GAP = 10;
 
 /**
  * Reads the shape back out of the placements, as "4-2-3-1" and the like.
