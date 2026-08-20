@@ -103,15 +103,20 @@ export const SET_PIECES = {
   /** Corners are tracked for the stats panel and feed set-piece chances. */
   cornerToChance: 0.12,
   /**
-   * How a corner delivery reshapes the chance it creates. `xg` scales the
-   * quality of the opportunity, `aerial` how much the finish leans on heading
-   * rather than composure, and `assist` how likely there is a clear provider.
+   * How a corner delivery reshapes the chance it creates.
+   *
+   * `whipped` is exactly neutral and is the default, so a manager who never
+   * opens the set piece screen plays the engine as it was calibrated. The
+   * others are not upgrades: `aerial` says how much the delivery depends on the
+   * man attacking it being good in the air, so a back post ball is excellent
+   * with a target man and poor without, and a worked short corner is the
+   * opposite. The choice is about your squad, not about finding the best option.
    */
   cornerDelivery: {
-    near_post: { xg: 1.08, aerial: 1.15, assist: 0.95 },
-    far_post: { xg: 1.02, aerial: 1.25, assist: 1.0 },
-    short: { xg: 0.92, aerial: 0.55, assist: 1.15 },
-    whipped: { xg: 1.12, aerial: 1.05, assist: 0.9 },
+    near_post: { xg: 1.0, aerial: 1.2 },
+    far_post: { xg: 0.98, aerial: 1.35 },
+    short: { xg: 1.0, aerial: 0.45 },
+    whipped: { xg: 1.0, aerial: 1.0 },
   } as const,
 };
 
