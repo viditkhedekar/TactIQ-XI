@@ -12,6 +12,7 @@ export async function POST() {
   try {
     return NextResponse.json(await finishMatchday(careerId));
   } catch (error) {
+    console.error("POST /api/match/finish failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not finish the round" },
       { status: 400 },
