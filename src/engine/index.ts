@@ -94,6 +94,7 @@ export {
 
 export {
   TRANSFER,
+  askingAfterAppetite,
   askingPrice,
   clubTransferAppetite,
   evaluateBid,
