@@ -336,7 +336,10 @@ export function evaluateFundsRequest(
   headroomEur: number,
   alreadyAskedThisSeason: number,
 ): RequestVerdict {
-  const noun = type === "transfer_funds" ? "transfer funds" : "wage room";
+  // Phrased so it reads as a sentence either way: "transfer funds are yours"
+  // needs a plural verb and "wage room is yours" needs a singular one, so the
+  // noun travels with the verb rather than being dropped into a fixed string.
+  const noun = type === "transfer_funds" ? "the money" : "the wage room";
 
   if (alreadyAskedThisSeason >= 2) {
     return {
@@ -370,7 +373,7 @@ export function evaluateFundsRequest(
     return {
       outcome: "granted",
       grantedEur: askedEur,
-      response: `Approved in full. The ${noun} is yours.`,
+      response: `Approved in full. ${noun[0].toUpperCase()}${noun.slice(1)} is yours.`,
     };
   }
 
