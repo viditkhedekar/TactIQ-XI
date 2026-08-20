@@ -25,6 +25,7 @@ export {
   cardMultiplier,
   chanceQualityMultiplier,
   defensiveDiscipline,
+  shapeAttackMultiplier,
   isFormationName,
   isTacticalStyle,
   matchingStyle,
@@ -37,6 +38,7 @@ export {
 export {
   PITCH_ANCHORS,
   SLOT_HOME,
+  anchorAt,
   describeShape,
   isValidPlacement,
   placementsFromFormation,
