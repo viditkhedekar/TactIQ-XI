@@ -169,8 +169,15 @@ export function pickChanceType(
   tactics: TeamTactics,
   ratings: TeamRatings,
   opponent: TeamRatings,
+  /**
+   * How the defending side is set up. What is available against a team is
+   * mostly a function of how they defend: a deep passive block offers shots
+   * from distance, a high line that engages offers the ball in behind. Without
+   * this every defensive instruction would be a free upgrade with no downside.
+   */
+  opponentTactics?: TeamTactics,
 ): ChanceType {
-  const weights = chanceTypeWeights(tactics, ratings, opponent);
+  const weights = chanceTypeWeights(tactics, ratings, opponent, opponentTactics);
   const keys = Object.keys(weights) as Exclude<ChanceType, "penalty">[];
   return keys[weightedIndex(rng, keys.map((k) => weights[k]))];
 }
@@ -189,6 +196,12 @@ export function resolveShot(
   type: ChanceType,
   defence: number,
   goalkeeping: number,
+  /**
+   * How good this chance is before anyone touches it, from the attacking
+   * instructions and from anything that happened on the way to it. One at
+   * neutral, so the default path is unchanged.
+   */
+  qualityMultiplier = 1,
 ): { outcome: ShotOutcome; xg: number } {
   const profile = CHANCE_TYPES[type];
   const quality = shooterQuality(shooter, type) * effectiveness(shooter) *
@@ -204,7 +217,10 @@ export function resolveShot(
   );
 
   // xG is reported for the stats panel and reflects the chance, not the result.
-  const xg = Math.max(0.01, Math.min(0.95, profile.baseXg * (0.6 + quality / 175)));
+  const xg = Math.max(
+    0.01,
+    Math.min(0.95, profile.baseXg * (0.6 + quality / 175) * qualityMultiplier),
+  );
 
   if (!chance(rng, onTarget)) {
     if (type !== "penalty" && chance(rng, SHOOTING.blockShare)) {
