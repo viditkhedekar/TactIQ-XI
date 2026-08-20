@@ -7,21 +7,43 @@
  */
 
 import type { CareerPlayerStateRow, PlayerRow } from "@/db/schema";
-import type { EnginePlayer, Position, Slot, TeamTactics } from "@/engine";
+import { applyDeltas, type EnginePlayer, type Position, type Slot, type TeamTactics, type TrainableAttribute } from "@/engine";
 import type { CareerTacticsRow } from "@/db/schema";
+
+/** The state fields that change how a player performs, all of them optional. */
+type PlayerCondition = Partial<
+  Pick<CareerPlayerStateRow, "fitness" | "form" | "clubId" | "attributeDeltas">
+>;
+
+/** Stored training movement, which is jsonb and therefore untyped on the way out. */
+export function toAttributeDeltas(
+  raw: unknown,
+): Partial<Record<TrainableAttribute, number>> | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+
+  const out: Partial<Record<TrainableAttribute, number>> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      out[key as TrainableAttribute] = value;
+    }
+  }
+  return out;
+}
 
 /**
  * Combines a player's fixed attributes with their condition in this career.
  * A player with no state row yet is treated as fully fit and in neutral form.
+ *
+ * Two career-scoped overrides are applied here rather than in the query: the
+ * club he plays for, which a transfer changes, and the attribute movement he
+ * has earned in training. Both live in career state so the imported player row
+ * stays shared and read-only.
  */
-export function toEnginePlayer(
-  row: PlayerRow,
-  state?: Pick<CareerPlayerStateRow, "fitness" | "form"> | null,
-): EnginePlayer {
-  return {
+export function toEnginePlayer(row: PlayerRow, state?: PlayerCondition | null): EnginePlayer {
+  const base: EnginePlayer = {
     id: row.id,
     name: row.shortName,
-    clubId: row.clubId,
+    clubId: state?.clubId ?? row.clubId,
     positions: row.positions as Position[],
     isGk: row.isGk,
     overall: row.overall,
@@ -70,6 +92,8 @@ export function toEnginePlayer(
     fitness: state?.fitness ?? 100,
     form: state?.form ?? 6.5,
   };
+
+  return applyDeltas(base, toAttributeDeltas(state?.attributeDeltas));
 }
 
 export type LineupEntry = { playerId: number; slot: Slot };
