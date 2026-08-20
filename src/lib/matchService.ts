@@ -341,6 +341,31 @@ async function persistEvents(fixtureId: string, events: MatchEvent[]): Promise<v
     .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.seq] });
 }
 
+/** Same as persistEvents, but for several fixtures in one round trip. */
+async function persistEventsForFixtures(
+  batches: { fixtureId: string; events: MatchEvent[] }[],
+): Promise<void> {
+  const rows = batches.flatMap(({ fixtureId, events }) =>
+    events.map((e) => ({
+      fixtureId,
+      seq: e.seq,
+      minute: e.minute,
+      addedTime: e.addedTime,
+      type: e.type,
+      clubId: e.clubId,
+      playerId: e.playerId,
+      secondPlayerId: e.secondPlayerId,
+      commentary: e.commentary,
+      data: e.data,
+    })),
+  );
+  if (rows.length === 0) return;
+  await db
+    .insert(matchEvents)
+    .values(rows)
+    .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.seq] });
+}
+
 export type AdvanceResult = {
   events: MatchEvent[];
   minute: number;
@@ -557,35 +582,60 @@ async function applyMatchResult(
     );
   const formById = new Map(existing.map((row) => [row.playerId, row.form]));
 
-  for (const p of result.players) {
-    const suspendedUntil =
-      p.redCards > 0 ? round + DISCIPLINE.redCardBanRounds : null;
-
+  if (result.players.length > 0) {
+    // One statement for every player who featured, rather than one UPDATE per
+    // player. A round is ten matches' worth of this sequentially, which was the
+    // single largest cost in settling a round: each network round trip to a
+    // managed Postgres runs 20-50ms even nearby, and that adds up across two
+    // hundred-plus single-row statements.
+    //
+    // The ON CONFLICT DO UPDATE / excluded pattern is what makes a bulk insert
+    // behave like a bulk update with per-row values. NULL is used as a "leave
+    // this alone" sentinel for suspendedUntilRound/injuredUntilRound/injuryType,
+    // which the original loop only ever touched conditionally: COALESCE falls
+    // back to the existing column value exactly where the loop would have
+    // omitted the field from its `set` entirely.
     await tx
-      .update(careerPlayerState)
-      .set({
-        fitness: p.endFitness,
-        form: updateForm(formById.get(p.playerId) ?? 6.5, p.rating),
-        apps: sql`${careerPlayerState.apps} + 1`,
-        minutes: sql`${careerPlayerState.minutes} + ${p.minutesPlayed}`,
-        goals: sql`${careerPlayerState.goals} + ${p.goals}`,
-        assists: sql`${careerPlayerState.assists} + ${p.assists}`,
-        yellows: sql`${careerPlayerState.yellows} + ${p.yellowCards}`,
-        reds: sql`${careerPlayerState.reds} + ${p.redCards}`,
-        seasonYellows: sql`${careerPlayerState.seasonYellows} + ${p.yellowCards}`,
-        ratingSum: sql`${careerPlayerState.ratingSum} + ${p.rating}`,
-        ratingCount: sql`${careerPlayerState.ratingCount} + 1`,
-        ...(suspendedUntil !== null ? { suspendedUntilRound: suspendedUntil } : {}),
-        ...(p.injury
-          ? { injuredUntilRound: round + p.injury.outRounds, injuryType: p.injury.severity }
-          : {}),
-      })
-      .where(
-        and(
-          eq(careerPlayerState.careerId, careerId),
-          eq(careerPlayerState.playerId, p.playerId),
-        ),
-      );
+      .insert(careerPlayerState)
+      .values(
+        result.players.map((p) => ({
+          careerId,
+          playerId: p.playerId,
+          fitness: p.endFitness,
+          form: updateForm(formById.get(p.playerId) ?? 6.5, p.rating),
+          apps: 1,
+          minutes: p.minutesPlayed,
+          goals: p.goals,
+          assists: p.assists,
+          yellows: p.yellowCards,
+          reds: p.redCards,
+          seasonYellows: p.yellowCards,
+          ratingSum: p.rating,
+          ratingCount: 1,
+          suspendedUntilRound: p.redCards > 0 ? round + DISCIPLINE.redCardBanRounds : null,
+          injuredUntilRound: p.injury ? round + p.injury.outRounds : null,
+          injuryType: p.injury ? p.injury.severity : null,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [careerPlayerState.careerId, careerPlayerState.playerId],
+        set: {
+          fitness: sql`excluded.fitness`,
+          form: sql`excluded.form`,
+          apps: sql`${careerPlayerState.apps} + excluded.apps`,
+          minutes: sql`${careerPlayerState.minutes} + excluded.minutes`,
+          goals: sql`${careerPlayerState.goals} + excluded.goals`,
+          assists: sql`${careerPlayerState.assists} + excluded.assists`,
+          yellows: sql`${careerPlayerState.yellows} + excluded.yellows`,
+          reds: sql`${careerPlayerState.reds} + excluded.reds`,
+          seasonYellows: sql`${careerPlayerState.seasonYellows} + excluded.season_yellows`,
+          ratingSum: sql`${careerPlayerState.ratingSum} + excluded.rating_sum`,
+          ratingCount: sql`${careerPlayerState.ratingCount} + excluded.rating_count`,
+          suspendedUntilRound: sql`coalesce(excluded.suspended_until_round, ${careerPlayerState.suspendedUntilRound})`,
+          injuredUntilRound: sql`coalesce(excluded.injured_until_round, ${careerPlayerState.injuredUntilRound})`,
+          injuryType: sql`coalesce(excluded.injury_type, ${careerPlayerState.injuryType})`,
+        },
+      });
   }
 
   // Yellow-card bans, applied once the totals are up to date.
@@ -684,6 +734,11 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
   const clubName = new Map(allClubs.map((c) => [c.id, c.name]));
 
   const otherResults: MatchResult[] = [];
+  // Collected across all nine fixtures and inserted once below, rather than
+  // one round trip per fixture: nobody is watching these, so there is no
+  // reason to write them as they happen rather than all together at the end.
+  const otherNotableEvents: { fixtureId: string; events: MatchEvent[] }[] = [];
+
   for (const fixture of otherFixtures) {
     const homeSquad = squads.get(fixture.homeClubId) ?? [];
     const awaySquad = squads.get(fixture.awayClubId) ?? [];
@@ -713,8 +768,9 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
     const notable = events.filter((e) =>
       ["goal", "red", "penalty_missed", "fulltime"].includes(e.type),
     );
-    await persistEvents(fixture.id, notable);
+    otherNotableEvents.push({ fixtureId: fixture.id, events: notable });
   }
+  await persistEventsForFixtures(otherNotableEvents);
 
   const playedIds = new Set(
     [...userResult.players, ...otherResults.flatMap((r) => r.players)].map((p) => p.playerId),
@@ -752,38 +808,46 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
       .from(careerPlayerState)
       .where(eq(careerPlayerState.careerId, careerId));
 
-    for (const row of states) {
-      const training = week.byPlayer.get(row.playerId);
-      const recovered = Math.max(
-        0,
-        recoverFitness(row.fitness, playedIds.has(row.playerId)) - (training?.fitnessCost ?? 0),
-      );
-
-      const unchanged = Math.abs(recovered - row.fitness) < 0.01;
-      if (unchanged && !training) continue;
-
-      await tx
-        .update(careerPlayerState)
-        .set({
-          fitness: recovered,
-          ...(training
-            ? {
-                attributeDeltas: training.attributeDeltas,
-                ...(training.injuryOutRounds !== null
-                  ? {
-                      injuredUntilRound: round + training.injuryOutRounds,
-                      injuryType: "training",
-                    }
-                  : {}),
-              }
-            : {}),
-        })
-        .where(
-          and(
-            eq(careerPlayerState.careerId, careerId),
-            eq(careerPlayerState.playerId, row.playerId),
-          ),
+    // As with applyMatchResult above, this was a sequential UPDATE per row of
+    // the whole league (roughly 550 players) and is now one bulk statement.
+    // NULL is again the "leave alone" sentinel for attributeDeltas / injury
+    // fields, which trainPlayer never itself produces as a real value.
+    const recoveryUpdates = states
+      .map((row) => {
+        const training = week.byPlayer.get(row.playerId);
+        const recovered = Math.max(
+          0,
+          recoverFitness(row.fitness, playedIds.has(row.playerId)) - (training?.fitnessCost ?? 0),
         );
+
+        const unchanged = Math.abs(recovered - row.fitness) < 0.01;
+        if (unchanged && !training) return null;
+
+        return {
+          careerId,
+          playerId: row.playerId,
+          fitness: recovered,
+          attributeDeltas: training ? training.attributeDeltas : null,
+          injuredUntilRound:
+            training && training.injuryOutRounds !== null ? round + training.injuryOutRounds : null,
+          injuryType: training && training.injuryOutRounds !== null ? "training" : null,
+        };
+      })
+      .filter((row) => row !== null);
+
+    if (recoveryUpdates.length > 0) {
+      await tx
+        .insert(careerPlayerState)
+        .values(recoveryUpdates)
+        .onConflictDoUpdate({
+          target: [careerPlayerState.careerId, careerPlayerState.playerId],
+          set: {
+            fitness: sql`excluded.fitness`,
+            attributeDeltas: sql`coalesce(excluded.attribute_deltas, ${careerPlayerState.attributeDeltas})`,
+            injuredUntilRound: sql`coalesce(excluded.injured_until_round, ${careerPlayerState.injuredUntilRound})`,
+            injuryType: sql`coalesce(excluded.injury_type, ${careerPlayerState.injuryType})`,
+          },
+        });
     }
 
     // The market moves on the same tick, so bids put in this round get their
