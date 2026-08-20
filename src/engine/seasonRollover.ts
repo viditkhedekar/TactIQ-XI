@@ -22,12 +22,25 @@ export const ROLLOVER = {
   /** Clubs relegated, and therefore promoted, each summer. */
   relegated: 3,
 
-  /** Nobody plays forever. Past this, a player may retire each summer. */
-  retirementAge: 34,
+  /**
+   * Retirement is off by design, and the ages below are the safety net rather
+   * than the rule.
+   *
+   * Squads persist from season to season, and nothing replaces a player who
+   * leaves: there is no youth intake and no regeneration. Retiring the usual
+   * two or three veterans a summer would therefore not create turnover, it
+   * would quietly shrink every squad in the game until clubs could not name
+   * eleven. So players only retire at an age nobody reaches in a normal save,
+   * which keeps the fiction sane without draining anybody.
+   *
+   * If a youth intake is ever added, `retirementAge` is the number to bring
+   * back down to about 34.
+   */
+  retirementAge: 40,
   /** Chance of retiring, per year past `retirementAge`. */
-  retirementChancePerYear: 0.22,
+  retirementChancePerYear: 0.35,
   /** Everybody is gone by here, whatever the dice say. */
-  forcedRetirementAge: 41,
+  forcedRetirementAge: 44,
 
   /**
    * The summer step, in rating points.
