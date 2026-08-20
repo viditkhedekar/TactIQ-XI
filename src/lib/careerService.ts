@@ -142,9 +142,12 @@ export function startingBudget(
 ): { transferBudget: number; wageBudget: number; wageSpend: number } {
   const strength = squadStrength(squad);
 
-  // 70 overall lands near the bottom of the division, 84 near the top.
+  // Calibrated so a title contender (squad strength around 84) starts with
+  // something near 125 million and a promoted side (around 70) with the floor.
+  // The exponent is what creates the gap: real budgets across a division differ
+  // by an order of magnitude, not by a factor of two.
   const scale = Math.pow(Math.max(1, strength - 58) / 16, 3.1);
-  const transferBudget = Math.round(Math.max(8_000_000, scale * 60_000_000) / 500_000) * 500_000;
+  const transferBudget = Math.round(Math.max(8_000_000, scale * 28_000_000) / 500_000) * 500_000;
 
   // Enough headroom to sign one or two, not enough to rebuild the wage bill.
   return { transferBudget, wageBudget: Math.round(wageSpend * 1.18), wageSpend };
