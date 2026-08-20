@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { FORMATION_NAMES } from "@/engine";
+import { FORMATION_NAMES, isTrainingFocus } from "@/engine";
 import { PL_CLUB_IDS } from "@/data/clubs";
 
 /** Doubles as the login, so it has to be readable and unambiguous. */
@@ -98,7 +98,39 @@ export const interventionSchema = z.object({
   subs: z.array(substitutionSchema).max(5).optional(),
 });
 
+export const trainingPlanSchema = z.object({
+  focus: z
+    .string()
+    .refine(isTrainingFocus, "That is not a training focus"),
+  intensity: z
+    .number()
+    .int()
+    .min(1, "Intensity runs from 1 to 5")
+    .max(5, "Intensity runs from 1 to 5"),
+});
+
+/**
+ * A bid. The upper bounds are not realism, they are a guard: a fee of 1e30
+ * would otherwise sail through the budget check as a float and corrupt the
+ * finance row.
+ */
+export const offerSchema = z.object({
+  playerId: z.number().int().positive(),
+  feeEur: z
+    .number()
+    .int("Enter the fee in whole euros")
+    .min(100_000, "The smallest bid anyone will consider is 100,000")
+    .max(1_000_000_000, "That is not a serious offer"),
+  wageEur: z
+    .number()
+    .int("Enter the wage in whole euros")
+    .min(1_000, "Nobody signs for that")
+    .max(5_000_000, "That is not a serious wage"),
+});
+
 export type CreateCareerInput = z.infer<typeof createCareerSchema>;
+export type TrainingPlanInput = z.infer<typeof trainingPlanSchema>;
+export type OfferInput = z.infer<typeof offerSchema>;
 export type TacticsInput = z.infer<typeof tacticsSchema>;
 export type InterventionInput = z.infer<typeof interventionSchema>;
 
