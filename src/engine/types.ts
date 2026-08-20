@@ -55,7 +55,40 @@ export type FormationName = "4-4-2" | "4-3-3" | "4-2-3-1" | "3-5-2" | "5-4-1" | 
 /** Team instructions. Every slider is 1..5, 3 being balanced. */
 export type Instruction = 1 | 2 | 3 | 4 | 5;
 
+/** What the side does with the ball once it reaches the last third. */
+export type FinalThirdFocus = "work_ball" | "mixed" | "shoot_early";
+
+/** Which channel the side looks to attack through. */
+export type PassingFocus = "left" | "centre" | "right" | "mixed";
+
+/** What the goalkeeper does with it. */
+export type KeeperDistribution = "short" | "mixed" | "long";
+
+/** How a corner is delivered. */
+export type CornerDelivery = "near_post" | "far_post" | "short" | "whipped";
+
+/**
+ * Who takes what, and how corners come in.
+ *
+ * Every taker is nullable: an unset one falls back to the best man on the pitch
+ * for that job, so a manager who never opens this screen still gets sensible
+ * behaviour, and a named taker being substituted off does not leave nobody to
+ * take the corner.
+ */
+export type SetPiecePlan = {
+  corners: number | null;
+  freeKicks: number | null;
+  penalties: number | null;
+  throwIns: number | null;
+  cornerDelivery: CornerDelivery;
+};
+
 export type TeamTactics = {
+  /**
+   * The shape, derived from where the eleven are actually standing rather than
+   * chosen from a list. Kept on the tactics because the AI still picks a shape
+   * from a template, and because the screen wants something to call it.
+   */
   formation: FormationName;
   /** 1 very defensive .. 5 very attacking */
   mentality: Instruction;
@@ -67,7 +100,33 @@ export type TeamTactics = {
   width: Instruction;
   /** 1 patient short passing .. 5 direct/long */
   directness: Instruction;
+
+  /* ------------------------------------------------------------------ new */
+
+  /** 1 sit deep .. 5 squeeze right up. Trades space behind for space ahead. */
+  defensiveLine: Instruction;
+  /** 1 hold shape .. 5 engage everywhere. Distinct from pressing intensity. */
+  closingDown: Instruction;
+  /** 1 stay on your feet .. 5 get stuck in. Wins the ball back and the cards. */
+  tackling: Instruction;
+  /** Stepping up to catch attackers offside, which is a genuine gamble. */
+  offsideTrap: boolean;
+  finalThird: FinalThirdFocus;
+  passingFocus: PassingFocus;
+  keeperDistribution: KeeperDistribution;
+  setPieces: SetPiecePlan;
+  /** Steadies the side. Null when nobody has the armband. */
+  captainId: number | null;
 };
+
+/**
+ * The parts of a team's setup a manager actually edits.
+ *
+ * Everything is optional so a stored plan written before a given instruction
+ * existed still loads, and so a partial change can be applied without restating
+ * the whole thing. `normaliseTactics` fills the gaps.
+ */
+export type TacticsInput = Partial<TeamTactics>;
 
 /**
  * A player as the engine sees them: raw attributes plus the career-scoped
@@ -131,6 +190,25 @@ export type EnginePlayer = {
   fitness: number;
   /** Rolling average of recent match ratings, ~4.0..9.0. */
   form: number;
+};
+
+/**
+ * Where a player has been put on the pitch.
+ *
+ * The manager drags rather than picking a formation from a list, so the shape
+ * is whatever the eleven placements happen to describe. `slot` is the only part
+ * the simulation reads: it is the recognised role the placement snapped to, and
+ * it carries all the meaning. `x` and `y` exist so the board can be drawn back
+ * exactly as it was arranged, including two players in the same kind of role
+ * standing in different places.
+ */
+export type PitchPlacement = {
+  playerId: number;
+  slot: Slot;
+  /** Percent across the pitch: 0 far left, 100 far right. */
+  x: number;
+  /** Percent up the pitch: 100 is your own goal, 0 is theirs. */
+  y: number;
 };
 
 /** A player occupying a pitch slot, with their live in-match condition. */
