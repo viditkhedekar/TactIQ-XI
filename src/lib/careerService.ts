@@ -6,11 +6,13 @@
  * that in a single transaction so a half-built save can never be left behind.
  */
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
+  careerClubFinance,
   careerPlayerState,
   careerTactics,
+  careerTraining,
   careers,
   clubs,
   fixtures,
@@ -27,6 +29,8 @@ import {
   hash32,
   roundDate,
   selectLineup,
+  squadStrength,
+  type EnginePlayer,
   type Slot,
 } from "@/engine";
 import { toEnginePlayer } from "./engineAdapter";
@@ -102,8 +106,58 @@ export async function createCareer(username: string, clubId: number): Promise<Ca
       bench: benchIds,
     });
 
+    await tx.insert(careerTraining).values({ careerId: career.id });
+
+    // Budgets for every club, not only the manager's, because the AI clubs bid
+    // against each other and have to be able to run out of money.
+    await tx.insert(careerClubFinance).values(
+      PL_CLUB_IDS.map((id) => {
+        const rows = allPlayers.filter((p) => p.clubId === id);
+        return {
+          careerId: career.id,
+          clubId: id,
+          ...startingBudget(
+            rows.map((p) => toEnginePlayer(p)),
+            rows.reduce((sum, p) => sum + weeklyWage(p), 0),
+          ),
+        };
+      }),
+    );
+
     return career;
   });
+}
+
+/**
+ * What a club starts the season with.
+ *
+ * Sized off squad strength rather than given flat, so the gap between the top
+ * and the bottom of the division survives into the transfer market. The curve
+ * is steep on purpose: in real terms the richest clubs have an order of
+ * magnitude more to spend than the poorest, not twice as much.
+ */
+export function startingBudget(
+  squad: EnginePlayer[],
+  wageSpend: number,
+): { transferBudget: number; wageBudget: number; wageSpend: number } {
+  const strength = squadStrength(squad);
+
+  // 70 overall lands near the bottom of the division, 84 near the top.
+  const scale = Math.pow(Math.max(1, strength - 58) / 16, 3.1);
+  const transferBudget = Math.round(Math.max(8_000_000, scale * 60_000_000) / 500_000) * 500_000;
+
+  // Enough headroom to sign one or two, not enough to rebuild the wage bill.
+  return { transferBudget, wageBudget: Math.round(wageSpend * 1.18), wageSpend };
+}
+
+/**
+ * A player's weekly wage. The import carries one for most players; the fallback
+ * derives it from overall on the same sort of curve as value, since the two
+ * track each other closely.
+ */
+export function weeklyWage(row: PlayerRow): number {
+  if (row.wageEur && row.wageEur > 0) return row.wageEur;
+  return Math.round(Math.pow(Math.max(45, row.overall) / 10, 3.4) * 55);
 }
 
 /** Creates a career, or returns the existing one for a username. */
@@ -125,6 +179,10 @@ export async function createOrResumeCareer(
 export type SquadMember = {
   player: PlayerRow;
   state: {
+    /** Null while the player is still at the club the import put him at. */
+    clubId: number | null;
+    attributeDeltas: unknown;
+    trainingFocus: string | null;
     fitness: number;
     form: number;
     injuredUntilRound: number | null;
@@ -141,6 +199,17 @@ export type SquadMember = {
   };
 };
 
+/**
+ * Who a player turns out for in this career.
+ *
+ * A transfer writes `career_player_state.club_id` and leaves the shared
+ * `players.club_id` alone, so every squad query has to read through this
+ * expression rather than the reference column. Using it anywhere a squad is
+ * assembled is what keeps one manager's transfer business out of everybody
+ * else's save.
+ */
+const effectiveClubId = sql<number>`COALESCE(${careerPlayerState.clubId}, ${players.clubId})`;
+
 /** A club's squad in a career, with each player's current condition. */
 export async function loadSquad(careerId: string, clubId: number): Promise<SquadMember[]> {
   const rows = await db
@@ -153,7 +222,7 @@ export async function loadSquad(careerId: string, clubId: number): Promise<Squad
         eq(careerPlayerState.careerId, careerId),
       ),
     )
-    .where(eq(players.clubId, clubId))
+    .where(eq(effectiveClubId, clubId))
     .orderBy(asc(players.isGk), asc(players.shortName));
 
   return rows.map((r) => ({ player: r.player, state: r.state }));
@@ -174,12 +243,15 @@ export async function loadSquads(
         eq(careerPlayerState.careerId, careerId),
       ),
     )
-    .where(inArray(players.clubId, clubIds));
+    .where(inArray(effectiveClubId, clubIds));
 
   const byClub = new Map<number, SquadMember[]>();
   for (const clubId of clubIds) byClub.set(clubId, []);
   for (const row of rows) {
-    byClub.get(row.player.clubId)?.push({ player: row.player, state: row.state });
+    // Grouped by the career's club, not the imported one, or a signed player
+    // would keep turning out for the club that sold him.
+    const club = row.state.clubId ?? row.player.clubId;
+    byClub.get(club)?.push({ player: row.player, state: row.state });
   }
   return byClub;
 }
