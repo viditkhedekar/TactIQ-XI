@@ -319,20 +319,26 @@ async function requireLiveMatch(careerId: string) {
 
 async function persistEvents(fixtureId: string, events: MatchEvent[]): Promise<void> {
   if (events.length === 0) return;
-  await db.insert(matchEvents).values(
-    events.map((e) => ({
-      fixtureId,
-      seq: e.seq,
-      minute: e.minute,
-      addedTime: e.addedTime,
-      type: e.type,
-      clubId: e.clubId,
-      playerId: e.playerId,
-      secondPlayerId: e.secondPlayerId,
-      commentary: e.commentary,
-      data: e.data,
-    })),
-  );
+  await db
+    .insert(matchEvents)
+    .values(
+      events.map((e) => ({
+        fixtureId,
+        seq: e.seq,
+        minute: e.minute,
+        addedTime: e.addedTime,
+        type: e.type,
+        clubId: e.clubId,
+        playerId: e.playerId,
+        secondPlayerId: e.secondPlayerId,
+        commentary: e.commentary,
+        data: e.data,
+      })),
+    )
+    // The simulation is deterministic, so a retried request produces the exact
+    // same events for the same (fixture, seq) pair. Skipping the duplicate
+    // rather than erroring is what makes a raced or retried request harmless.
+    .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.seq] });
 }
 
 export type AdvanceResult = {
@@ -383,20 +389,23 @@ export async function advanceMatch(
   const { state, events, boundary } = simulateSegment(live.state, { onMinute: aiMinuteHook });
 
   await db.transaction(async (tx) => {
-    await tx.insert(matchEvents).values(
-      events.map((e) => ({
-        fixtureId: live.fixtureId,
-        seq: e.seq,
-        minute: e.minute,
-        addedTime: e.addedTime,
-        type: e.type,
-        clubId: e.clubId,
-        playerId: e.playerId,
-        secondPlayerId: e.secondPlayerId,
-        commentary: e.commentary,
-        data: e.data,
-      })),
-    );
+    await tx
+      .insert(matchEvents)
+      .values(
+        events.map((e) => ({
+          fixtureId: live.fixtureId,
+          seq: e.seq,
+          minute: e.minute,
+          addedTime: e.addedTime,
+          type: e.type,
+          clubId: e.clubId,
+          playerId: e.playerId,
+          secondPlayerId: e.secondPlayerId,
+          commentary: e.commentary,
+          data: e.data,
+        })),
+      )
+      .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.seq] });
     await tx
       .update(liveMatchState)
       .set({
@@ -481,20 +490,23 @@ export async function interveneInMatch(
 
   await db.transaction(async (tx) => {
     if (events.length > 0) {
-      await tx.insert(matchEvents).values(
-        events.map((e) => ({
-          fixtureId: live.fixtureId,
-          seq: e.seq,
-          minute: e.minute,
-          addedTime: e.addedTime,
-          type: e.type,
-          clubId: e.clubId,
-          playerId: e.playerId,
-          secondPlayerId: e.secondPlayerId,
-          commentary: e.commentary,
-          data: e.data,
-        })),
-      );
+      await tx
+        .insert(matchEvents)
+        .values(
+          events.map((e) => ({
+            fixtureId: live.fixtureId,
+            seq: e.seq,
+            minute: e.minute,
+            addedTime: e.addedTime,
+            type: e.type,
+            clubId: e.clubId,
+            playerId: e.playerId,
+            secondPlayerId: e.secondPlayerId,
+            commentary: e.commentary,
+            data: e.data,
+          })),
+        )
+        .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.seq] });
     }
     await tx
       .update(liveMatchState)
