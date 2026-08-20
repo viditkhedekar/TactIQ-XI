@@ -72,6 +72,19 @@ export const DEFAULT_TACTICS: TeamTactics = {
 };
 
 /**
+ * Whatever a caller happens to be holding.
+ *
+ * Deliberately loose. This function's whole job is to turn untrusted or
+ * outdated input into a valid plan, so demanding the narrow types it produces
+ * would mean every caller casting on the way in, which defeats the point.
+ */
+export type LooseTactics = {
+  [K in keyof TeamTactics]?: K extends "setPieces"
+    ? Partial<SetPiecePlan> | null
+    : TeamTactics[K] | number | string | null;
+};
+
+/**
  * Fills a partial or outdated plan out into a complete one.
  *
  * Team tactics are serialized into the live match state and into the career
@@ -80,7 +93,7 @@ export const DEFAULT_TACTICS: TeamTactics = {
  * neutral default, which by design plays exactly as the engine did before that
  * instruction existed.
  */
-export function normaliseTactics(input: Partial<TeamTactics> | null | undefined): TeamTactics {
+export function normaliseTactics(input: LooseTactics | null | undefined): TeamTactics {
   if (!input) return { ...DEFAULT_TACTICS, setPieces: { ...DEFAULT_SET_PIECES } };
 
   const slider = (value: unknown, fallback: Instruction): Instruction =>
@@ -99,8 +112,9 @@ export function normaliseTactics(input: Partial<TeamTactics> | null | undefined)
   const setPieces = input.setPieces ?? DEFAULT_SET_PIECES;
 
   return {
-    formation: input.formation && isFormationName(input.formation)
-      ? input.formation
+    formation:
+      typeof input.formation === "string" && isFormationName(input.formation)
+        ? input.formation
       : DEFAULT_TACTICS.formation,
     mentality: slider(input.mentality, 3),
     pressing: slider(input.pressing, 3),
