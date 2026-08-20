@@ -22,7 +22,7 @@ import type { CareerTacticsRow } from "@/db/schema";
 
 /** The state fields that change how a player performs, all of them optional. */
 type PlayerCondition = Partial<
-  Pick<CareerPlayerStateRow, "fitness" | "form" | "clubId" | "attributeDeltas">
+  Pick<CareerPlayerStateRow, "fitness" | "form" | "clubId" | "attributeDeltas" | "age">
 >;
 
 /** Stored training movement, which is jsonb and therefore untyped on the way out. */
@@ -57,7 +57,9 @@ export function toEnginePlayer(row: PlayerRow, state?: PlayerCondition | null): 
     positions: row.positions as Position[],
     isGk: row.isGk,
     overall: row.overall,
-    age: row.age,
+    // Career-scoped, for the same reason the club is: seasons pass at their own
+    // pace in each save, so the imported age is only ever the starting one.
+    age: state?.age ?? row.age,
 
     crossing: row.crossing,
     finishing: row.finishing,

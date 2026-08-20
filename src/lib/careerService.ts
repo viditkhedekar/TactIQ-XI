@@ -279,6 +279,16 @@ export type SquadMember = {
 const effectiveClubId = sql<number>`COALESCE(${careerPlayerState.clubId}, ${players.clubId})`;
 
 /**
+ * A player who has hung his boots up is no longer in anybody's squad.
+ *
+ * Retirement sets a season on the state row rather than deleting the player,
+ * because old fixtures, honours and season history all still refer to him. That
+ * makes filtering him out the responsibility of every squad query, which is why
+ * it lives next to the club expression and is applied in the same place.
+ */
+const notRetired = sql`${careerPlayerState.retiredInSeason} IS NULL`;
+
+/**
  * A club's squad in a career, with each player's current condition.
  *
  * Also request-cached: several screens load the manager's own squad more than
@@ -295,7 +305,7 @@ export const loadSquad = cache(async (careerId: string, clubId: number): Promise
         eq(careerPlayerState.careerId, careerId),
       ),
     )
-    .where(eq(effectiveClubId, clubId))
+    .where(and(eq(effectiveClubId, clubId), notRetired))
     .orderBy(asc(players.isGk), asc(players.shortName));
 
   return rows.map((r) => ({ player: r.player, state: r.state }));
@@ -316,7 +326,7 @@ export async function loadSquads(
         eq(careerPlayerState.careerId, careerId),
       ),
     )
-    .where(inArray(effectiveClubId, clubIds));
+    .where(and(inArray(effectiveClubId, clubIds), notRetired));
 
   const byClub = new Map<number, SquadMember[]>();
   for (const clubId of clubIds) byClub.set(clubId, []);

@@ -491,8 +491,20 @@ export const careerPlayerState = pgTable(
      * and shared, and the delta is what belongs to this career.
      */
     attributeDeltas: jsonb("attribute_deltas"),
+    /**
+     * How old he is in this save, once that is no longer what the import says.
+     *
+     * Age has to be career-scoped for exactly the reason the club does: two
+     * saves in the same database progress through seasons independently, so
+     * ageing the shared `players.age` would push somebody else's 24-year-old to
+     * 27 the moment this career reached its fourth season. Null means the
+     * reference age still stands.
+     */
+    age: smallint("age"),
     /** Extra work this player has been put on, overriding the squad's focus. */
     trainingFocus: text("training_focus"),
+    /** Set the summer a player hangs his boots up, so he stops being selectable. */
+    retiredInSeason: smallint("retired_in_season"),
     fitness: real("fitness").notNull().default(100),
     form: real("form").notNull().default(6.5),
     injuryType: text("injury_type"),
