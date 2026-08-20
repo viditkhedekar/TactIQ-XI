@@ -902,21 +902,37 @@ export function applyIntervention(
     if (applySubstitution(state, side, sub, emit)) subsApplied++;
   }
 
-  let tacticsChanged = false;
+  // Repositioning. Applied after substitutions so a manager can bring someone
+  // on and put him somewhere new in the same visit to the drawer.
+  let shapeChanged = false;
+  for (const placement of intervention.placements ?? []) {
+    const lp = side.onPitch.find((p) => p.player.id === placement.playerId && !p.sentOff);
+    if (!lp || lp.slot === placement.slot) continue;
+    // A keeper cannot be moved outfield, or an outfielder into goal, without a
+    // substitution: that is a different decision with different consequences.
+    if (lp.player.isGk !== (placement.slot === "GK")) continue;
+    lp.slot = placement.slot;
+    shapeChanged = true;
+  }
+
+  let tacticsChanged = shapeChanged;
   if (intervention.tactics) {
     const updated = applyTacticsChange(side.tactics, intervention.tactics);
-    tacticsChanged = JSON.stringify(updated) !== JSON.stringify(side.tactics);
-    if (tacticsChanged) {
+    if (JSON.stringify(updated) !== JSON.stringify(side.tactics)) {
       side.tactics = updated;
-      emit({
-        type: "tactic_change",
-        clubId: side.clubId,
-        playerId: null,
-        secondPlayerId: null,
-        commentary: tacticChangeLine(side.clubName),
-        data: null,
-      });
+      tacticsChanged = true;
     }
+  }
+
+  if (tacticsChanged) {
+    emit({
+      type: "tactic_change",
+      clubId: side.clubId,
+      playerId: null,
+      secondPlayerId: null,
+      commentary: tacticChangeLine(side.clubName),
+      data: null,
+    });
   }
 
   return { subsApplied, tacticsChanged };

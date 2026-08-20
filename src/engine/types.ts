@@ -424,6 +424,12 @@ export type Substitution = { off: number; on: number };
 export type Intervention = {
   tactics?: Partial<TeamTactics>;
   subs?: Substitution[];
+  /**
+   * Players moved to new positions without a substitution. Switching to a back
+   * three at half time is a shape change, not a swap, and a manager who had to
+   * spend one of his five to do it would rightly be annoyed.
+   */
+  placements?: PitchPlacement[];
 };
 
 /** Per-player outcome of a finished match, folded back into career state. */
