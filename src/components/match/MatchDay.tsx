@@ -110,6 +110,14 @@ export function MatchDay({ homeColor, awayColor }: { homeColor?: string; awayCol
   /* ------------------------------------------------------------- finishing */
 
   async function finishRound() {
+    // Shares the advance loop's guard: a click on "Continue to results" while a
+    // requestMore() is still in flight would otherwise let both read the same
+    // server state and insert the same event sequence numbers twice. The ref
+    // (unlike `finishing`) updates synchronously, so it also stops a fast
+    // double-click slipping a second request through before the button
+    // re-renders disabled.
+    if (inFlight.current) return;
+    inFlight.current = true;
     setFinishing(true);
     try {
       const response = await fetch("/api/match/finish", { method: "POST" });
@@ -127,6 +135,7 @@ export function MatchDay({ homeColor, awayColor }: { homeColor?: string; awayCol
     } catch (e) {
       store.setError(e instanceof Error ? e.message : "Could not finish the round");
       setFinishing(false);
+      inFlight.current = false;
     }
   }
 
