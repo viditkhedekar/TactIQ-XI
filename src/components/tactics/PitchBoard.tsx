@@ -70,7 +70,15 @@ export function PitchBoard({
     // can never be finished.
     if (event.button !== 0) return;
     event.preventDefault();
-    (event.target as Element).setPointerCapture?.(event.pointerId);
+
+    // Capture keeps the drag alive when the cursor leaves the token, but it
+    // throws for a pointer id the browser does not consider active. Losing the
+    // capture is a degraded drag; letting it throw loses the drag entirely.
+    try {
+      (event.target as Element).setPointerCapture?.(event.pointerId);
+    } catch {
+      // Carry on without capture.
+    }
 
     const point = pointToPercent(event.clientX, event.clientY);
     if (point) setDragging({ playerId, ...point });
