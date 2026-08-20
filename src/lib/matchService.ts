@@ -52,7 +52,7 @@ import {
   type TeamTactics,
 } from "@/engine";
 import { toBench, toEnginePlayer, toLineup, toTeamTactics } from "./engineAdapter";
-import { loadSquads } from "./careerService";
+import { ensureCareerExtras, loadSquads } from "./careerService";
 import { computeWeeklyTraining, loadTrainingPlan, saveTrainingReport } from "./trainingService";
 import { processTransferRound } from "./transferService";
 
@@ -707,6 +707,12 @@ export async function finishMatchday(careerId: string): Promise<FinishResult> {
   const playedIds = new Set(
     [...userResult.players, ...otherResults.flatMap((r) => r.players)].map((p) => p.playerId),
   );
+
+  // Older saves have no budget rows, and without them the market would sit
+  // silent for the rest of the career. Doing it here rather than only on the
+  // transfers screen means a manager who never opens that screen still gets a
+  // division that does its own business.
+  await ensureCareerExtras(careerId);
 
   const plan = await loadTrainingPlan(careerId);
 
