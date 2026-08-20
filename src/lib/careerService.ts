@@ -29,11 +29,14 @@ import {
   hash32,
   roundDate,
   selectLineup,
+  placementsFromFormation,
   squadStrength,
   type EnginePlayer,
+  type PitchPlacement,
   type Slot,
+  type TeamTactics,
 } from "@/engine";
-import { toEnginePlayer } from "./engineAdapter";
+import { toEnginePlayer, toStoredInstructions } from "./engineAdapter";
 import { PL_CLUB_IDS } from "@/data/clubs";
 
 export type CareerContext = {
@@ -102,7 +105,9 @@ export async function createCareer(username: string, clubId: number): Promise<Ca
     await tx.insert(careerTactics).values({
       careerId: career.id,
       formation,
-      lineup,
+      // Stored as placements from the start, so the board has somewhere to draw
+      // the eleven before the manager has ever dragged anybody.
+      lineup: placementsFromFormation(lineup),
       bench: benchIds,
     });
 
@@ -324,22 +329,34 @@ export async function loadTactics(careerId: string) {
   return rows[0] ?? null;
 }
 
+/**
+ * Stores a whole plan.
+ *
+ * Split across columns and one jsonb blob: the original five sliders keep their
+ * own columns, and everything added since travels together in `instructions`.
+ * The split is historical rather than principled, but it is harmless, and
+ * `toTeamTactics` puts the two halves back together on the way out.
+ */
 export async function saveTactics(
   careerId: string,
-  input: {
-    formation: string;
-    mentality: number;
-    pressing: number;
-    tempo: number;
-    width: number;
-    directness: number;
-    lineup: { playerId: number; slot: Slot }[];
-    bench: number[];
-  },
+  tactics: TeamTactics,
+  lineup: PitchPlacement[],
+  bench: number[],
 ): Promise<void> {
   await db
     .update(careerTactics)
-    .set({ ...input, updatedAt: new Date() })
+    .set({
+      formation: tactics.formation,
+      mentality: tactics.mentality,
+      pressing: tactics.pressing,
+      tempo: tactics.tempo,
+      width: tactics.width,
+      directness: tactics.directness,
+      instructions: toStoredInstructions(tactics),
+      lineup,
+      bench,
+      updatedAt: new Date(),
+    })
     .where(eq(careerTactics.careerId, careerId));
 }
 
