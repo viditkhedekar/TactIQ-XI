@@ -18,11 +18,17 @@ import { randRange, type RngState } from "./rng";
 import type { EnginePlayer, Position } from "./types";
 
 export const TRANSFER = {
-  /** Windows, as the round the window covers. Round 1 is the season opener. */
-  summerWindowRound: 0,
-  januaryWindowRound: 20,
-  /** How many rounds the January window stays open. */
-  januaryWindowLength: 3,
+  /**
+   * The two windows, as inclusive round ranges.
+   *
+   * Each is several rounds wide because a deal is not instant: a bid gets a
+   * response the following round, and a haggle costs another. A one-round
+   * window would mean every offer expired before anyone could answer it.
+   */
+  summerWindow: [1, 4] as const,
+  januaryWindow: [20, 23] as const,
+  /** Rounds between an offer being made and the selling club responding. */
+  responseDelay: 1,
 
   /** Squad size limits, enforced on both sides of a deal. */
   minSquadSize: 18,
@@ -31,7 +37,7 @@ export const TRANSFER = {
   /** Nobody sells at the listed price. */
   basePremium: 1.18,
   /** A club's best player costs this much more than his market value. */
-  keyPlayerPremium: 0.55,
+  keyPlayerPremium: 0.45,
   /** A player nobody picks can be had for less. */
   fringeDiscount: 0.22,
   /** Form swings the asking price by up to this share either way. */
@@ -159,6 +165,19 @@ export type BidVerdict =
   | { decision: "reject"; reason: string };
 
 /**
+ * The asking price after the club's willingness to sell is taken into account.
+ *
+ * A keen seller shades its price; a reluctant one holds out above it. This has
+ * to be exported and used by whatever shows a price to the manager, not just by
+ * the evaluation: if the screen shows the raw valuation while the decision is
+ * made against this, then bidding exactly what was asked gets countered, and
+ * the manager is being lied to by the interface.
+ */
+export function askingAfterAppetite(asking: number, appetite: number): number {
+  return Math.round(asking * (1.15 - Math.max(0, Math.min(1, appetite)) * 0.3));
+}
+
+/**
  * Whether a club takes the money.
  *
  * `appetite` is how willing this club is to sell at all: a club over its squad
@@ -188,8 +207,7 @@ export function evaluateBid(
     return { decision: "reject", reason: `Your squad is already at ${TRANSFER.maxSquadSize} players` };
   }
 
-  // A keen seller shades its price; a reluctant one holds firm above it.
-  const effectiveAsking = asking * (1.15 - appetite * 0.3);
+  const effectiveAsking = askingAfterAppetite(asking, appetite);
 
   if (bid >= effectiveAsking) return { decision: "accept" };
 
