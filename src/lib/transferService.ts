@@ -27,6 +27,7 @@ import {
 } from "@/db/schema";
 import {
   TRANSFER,
+  askingAfterAppetite,
   askingPrice,
   clubTransferAppetite,
   createRng,
@@ -189,6 +190,31 @@ function priceFor(
   return askingPrice(rng, value, importance, { unwanted: importance < 0.12 });
 }
 
+/**
+ * The number to put in front of a bidder: the valuation, adjusted for how
+ * willing the club actually is to sell.
+ *
+ * `priceFor` deliberately stays raw because `evaluateBid` applies the appetite
+ * itself, and passing an already-adjusted figure into it would apply the
+ * adjustment twice. Anything that displays a price, or that bids one, uses this
+ * instead, so what the manager is quoted is what will actually be accepted.
+ */
+function quotedPriceFor(
+  careerId: string,
+  round: number,
+  player: MarketPlayer,
+  squad: MarketPlayer[],
+  budget: number,
+): number {
+  const raw = priceFor(careerId, round, player, squad);
+  const appetite = clubTransferAppetite(
+    squadNeed(squad.map((p) => p.engine)),
+    budget,
+    squad.length,
+  );
+  return askingAfterAppetite(raw, appetite);
+}
+
 export type TransferTargetView = {
   playerId: number;
   name: string;
@@ -222,6 +248,12 @@ export async function listTargets(
   const clubRows = await db.select().from(clubs);
   const clubName = new Map(clubRows.map((c) => [c.id, c.name]));
 
+  const financeRows = await db
+    .select()
+    .from(careerClubFinance)
+    .where(eq(careerClubFinance.careerId, careerId));
+  const budgets = new Map(financeRows.map((r) => [r.clubId, r.transferBudget]));
+
   const ourSquad = byClub.get(userClubId) ?? [];
   const ourStrength = squadStrength(ourSquad.map((p) => p.engine));
 
@@ -249,7 +281,7 @@ export async function listTargets(
     for (const player of squad) {
       if (search && !player.row.longName.toLowerCase().includes(search)) continue;
 
-      const fee = priceFor(careerId, round, player, squad);
+      const fee = quotedPriceFor(careerId, round, player, squad, budgets.get(clubId) ?? 0);
       if (options.maxFee !== undefined && fee > options.maxFee) continue;
 
       out.push({
@@ -772,7 +804,15 @@ async function runAiMarket(
         if (player.engine.overall <= bar) continue;
         if (alreadyBid.has(`${clubId}:${player.row.id}`)) continue;
 
-        const fee = priceFor(careerId, round, player, otherSquad);
+        // The AI bids the quoted price, so its offers are accepted rather than
+        // endlessly countered.
+        const fee = quotedPriceFor(
+          careerId,
+          round,
+          player,
+          otherSquad,
+          finances.get(otherId)?.transferBudget ?? 0,
+        );
         if (fee > finance.transferBudget) continue;
 
         const demand = playerWageDemand(
