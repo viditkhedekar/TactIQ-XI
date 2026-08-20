@@ -1,4 +1,4 @@
-# Touchline
+# TactIQ XI
 
 A browser-based football management game. Take charge of a Premier League club
 for a full season: pick your side, set your tactics, and follow every match

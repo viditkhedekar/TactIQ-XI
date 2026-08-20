@@ -47,7 +47,7 @@ export default async function LandingPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-6 py-12">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Touchline</h1>
+        <h1 className="text-3xl font-bold tracking-tight">TactIQ XI</h1>
         <p className="mt-2 max-w-xl text-[var(--text-muted)]">
           Take charge of a Premier League club for a full season. Pick your side, set your
           tactics, and follow every match minute by minute.

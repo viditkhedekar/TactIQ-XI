@@ -8,7 +8,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Touchline",
+  title: "TactIQ XI",
   description: "Manage a Premier League club through a full season.",
 };
 
