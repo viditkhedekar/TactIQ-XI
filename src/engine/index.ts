@@ -65,4 +65,45 @@ export {
   type ScheduledFixture,
 } from "./schedule";
 
+export {
+  analyseMatch,
+  type AnalysisArea,
+  type AnalysisAreaKey,
+  type AnalysisVerdict,
+  type IndividualRecommendation,
+  type MatchAnalysis,
+  type PlayerReport,
+  type TrainingRecommendation,
+} from "./analysis";
+
+export {
+  FOCUS_ATTRIBUTES,
+  TRAINING,
+  TRAINING_FOCUS_LABELS,
+  accumulateDeltas,
+  applyDeltas,
+  isTrainingFocus,
+  trainPlayer,
+  trainSquad,
+  type TrainableAttribute,
+  type TrainingFocus,
+  type TrainingIntensity,
+  type TrainingPlan,
+  type TrainingResult,
+} from "./training";
+
+export {
+  TRANSFER,
+  askingPrice,
+  clubTransferAppetite,
+  evaluateBid,
+  playerWageDemand,
+  squadNeed,
+  transferValue,
+  wageAcceptance,
+  type BidVerdict,
+  type SquadNeed,
+  type TransferTarget,
+} from "./transferMarket";
+
 export { MATCH, FATIGUE, DISCIPLINE, COLOUR } from "./constants";
