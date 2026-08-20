@@ -45,9 +45,37 @@ export default async function TacticsPage() {
     };
   });
 
-  const tactics = tacticsRow ? toTeamTactics(tacticsRow) : DEFAULT_TACTICS;
-  let lineup: PitchPlacement[] = tacticsRow ? toLineup(tacticsRow) : [];
-  let bench = tacticsRow ? toBench(tacticsRow) : [];
+  const stored = tacticsRow ? toTeamTactics(tacticsRow) : DEFAULT_TACTICS;
+
+  /**
+   * A saved team sheet can name players who are no longer here.
+   *
+   * Selling someone does not rewrite every plan that mentioned him, so his id
+   * lingers in the lineup, on the bench, on the penalties, or on the armband.
+   * The board would then refuse to save with "that player is not in your squad"
+   * while showing nothing the manager could actually remove, because a departed
+   * player is not in the list either. Cleaning up on load is the fix: the sheet
+   * quietly loses whoever has gone, and the gap is filled below.
+   */
+  const squadIds = new Set(squad.map((m) => m.player.id));
+  const ours = (id: number | null) => (id !== null && squadIds.has(id) ? id : null);
+
+  const tactics = {
+    ...stored,
+    captainId: ours(stored.captainId),
+    setPieces: {
+      corners: ours(stored.setPieces.corners),
+      freeKicks: ours(stored.setPieces.freeKicks),
+      penalties: ours(stored.setPieces.penalties),
+      throwIns: ours(stored.setPieces.throwIns),
+      cornerDelivery: stored.setPieces.cornerDelivery,
+    },
+  };
+
+  let lineup: PitchPlacement[] = (tacticsRow ? toLineup(tacticsRow) : []).filter((e) =>
+    squadIds.has(e.playerId),
+  );
+  let bench = (tacticsRow ? toBench(tacticsRow) : []).filter((id) => squadIds.has(id));
 
   // A career with no usable team sheet still has to open onto eleven players
   // standing somewhere, or there is nothing to drag.
