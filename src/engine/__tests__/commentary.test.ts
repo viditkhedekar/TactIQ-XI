@@ -122,6 +122,39 @@ describe("commentary", () => {
     );
   });
 
+  it("capitalises an outcome that follows a full stop", () => {
+    // Outcome lines are written to follow a comma, so most begin lowercase.
+    // Joined with a full stop they have to be lifted, or the ticker reads
+    // "he gets his head to it. the keeper does well".
+    expect(joinPhrases("Watkins gets his head to it", "the keeper does well")).toBe(
+      "Watkins gets his head to it. The keeper does well",
+    );
+    expect(joinPhrases("Saka shoots", "he buries it")).toBe("Saka shoots. He buries it");
+  });
+
+  it("never prints a lowercase letter straight after a full stop", () => {
+    const rng = createRng(31);
+    const lines: string[] = [];
+
+    for (const type of CHANCE_TYPES) {
+      for (let i = 0; i < 12; i++) {
+        const buildUp = buildUpLine(rng, type, names);
+        for (const outcome of [
+          goalLine(rng, names, i % 2 === 0),
+          saveLine(rng, names),
+          shotOffLine(rng, names),
+        ]) {
+          lines.push(joinPhrases(buildUp, outcome));
+        }
+      }
+    }
+
+    for (const line of lines) {
+      // Allowed: a full stop inside an all-caps shout, or ending the line.
+      expect(line).not.toMatch(/\. [a-z]/);
+    }
+  });
+
   it("reports the score at the breaks", () => {
     expect(kickoffLine("Arsenal", "Liverpool")).toContain("Arsenal");
     expect(halfTimeLine("Arsenal", 1, "Liverpool", 0)).toContain("1");
