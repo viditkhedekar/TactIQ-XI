@@ -8,6 +8,13 @@
       "when": 1787148438827,
       "tag": "0000_curly_hiroim",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787213460349,
+      "tag": "0001_foamy_red_ghost",
+      "breakpoints": true
     }
   ]
 }
