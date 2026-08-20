@@ -85,10 +85,19 @@ describe("ageing", () => {
     expect(result.retired).toBe(true);
   });
 
-  it("retires some but not all of a cohort of veterans", () => {
+  it("does not retire players at a realistic footballing age", () => {
+    // Nothing replaces a player who leaves, so retiring the usual veterans each
+    // summer would shrink every squad in the game until clubs could not name a
+    // side. A 35-year-old must still be available next season.
+    for (let seed = 0; seed < 200; seed += 1) {
+      expect(ageOneSummer(createRng(seed), player({ age: 35 }), 70).retired).toBe(false);
+    }
+  });
+
+  it("retires some but not all of a cohort well past forty", () => {
     let retired = 0;
     for (let seed = 0; seed < 100; seed += 1) {
-      if (ageOneSummer(createRng(seed), player({ age: 35 }), 70).retired) retired += 1;
+      if (ageOneSummer(createRng(seed), player({ age: 41 }), 70).retired) retired += 1;
     }
     expect(retired).toBeGreaterThan(0);
     expect(retired).toBeLessThan(100);
