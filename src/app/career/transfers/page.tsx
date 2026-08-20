@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import { requireCareer } from "@/lib/session";
-import { loadSquad } from "@/lib/careerService";
+import { ensureCareerExtras, loadSquad } from "@/lib/careerService";
 import {
   formatEur,
   listCompletedTransfers,
@@ -44,6 +44,9 @@ export default async function TransfersPage() {
   const { career, club } = await requireCareer();
   const round = career.currentRound;
   const window = transferWindow(round);
+
+  // Saves that predate budgets get theirs the first time they come here.
+  await ensureCareerExtras(career.id);
 
   const [finance, squad, targets, outgoing, incoming, completed] = await Promise.all([
     loadFinance(career.id, career.clubId),
