@@ -48,17 +48,36 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * figure it returns is what the *current* evidence supports, and only
  * `updateBoardConfidence` commits that at the end of a round.
  */
-export async function loadBoardView(career: CareerRow): Promise<BoardView> {
-  const progress = await gatherProgress(career);
+export async function loadBoardView(
+  career: CareerRow,
+  tx: Tx | typeof db = db,
+): Promise<BoardView> {
+  const progress = await gatherProgress(career, tx);
   return assessBoard(progress, career.boardConfidence, career.roundsInDanger);
 }
 
-/** The raw evidence, before anybody judges it. */
-async function gatherProgress(career: CareerRow): Promise<SeasonProgress> {
-  const table = await buildLeagueTable(career.id, career.season);
+/**
+ * The raw evidence, before anybody judges it.
+ *
+ * Takes the same client every query in here runs on. This matters more than it
+ * looks: `updateBoardConfidence` calls this from inside the matchday
+ * transaction, which in production holds the pool's only connection (see
+ * db/client.ts). Every query below used to reach for the module-level `db`
+ * instead of that transaction's client, which meant each one tried to check
+ * out a second connection from a pool that had none to give — the transaction
+ * itself was holding the only one. That is a deadlock, not a slow query, and it
+ * surfaced as "timeout exceeded when trying to connect" on every single
+ * finish/quick-sim in production, where the local pool's slack (`max: 10`)
+ * had been hiding it.
+ */
+async function gatherProgress(
+  career: CareerRow,
+  tx: Tx | typeof db = db,
+): Promise<SeasonProgress> {
+  const table = await buildLeagueTable(career.id, career.season, tx);
   const own = table.find((r) => r.clubId === career.clubId);
 
-  const [finance] = await db
+  const [finance] = await tx
     .select()
     .from(careerClubFinance)
     .where(
@@ -69,12 +88,12 @@ async function gatherProgress(career: CareerRow): Promise<SeasonProgress> {
     )
     .limit(1);
 
-  const cup = await cupProgressFor(career.id, career.season, career.clubId);
+  const cup = await cupProgressFor(career.id, career.season, career.clubId, tx);
 
   // How the players signed this season are actually performing, which is the
   // board's real question about the transfer budget: not what was spent, but
   // whether it worked.
-  const signings = await db
+  const signings = await tx
     .select({
       ratingSum: careerPlayerState.ratingSum,
       ratingCount: careerPlayerState.ratingCount,
@@ -99,7 +118,7 @@ async function gatherProgress(career: CareerRow): Promise<SeasonProgress> {
   // to say how much of the budget is left: the starting figure is not stored,
   // so "remaining" has to be measured against what was spent rather than
   // against itself.
-  const [spend] = await db
+  const [spend] = await tx
     .select({ total: sql<number>`COALESCE(SUM(${transferHistory.feeEur}), 0)::bigint` })
     .from(transferHistory)
     .where(
@@ -121,7 +140,7 @@ async function gatherProgress(career: CareerRow): Promise<SeasonProgress> {
       : null;
 
   // Minutes given to under-21s, as a share of everything played.
-  const squad = await db
+  const squad = await tx
     .select({
       minutes: careerPlayerState.minutes,
       age: sql<number>`COALESCE(${careerPlayerState.age}, ${players.age})`,
@@ -168,7 +187,7 @@ export async function updateBoardConfidence(
   tx: Tx,
   career: CareerRow,
 ): Promise<{ confidence: number; sacked: boolean }> {
-  const view = await loadBoardView(career);
+  const view = await loadBoardView(career, tx);
 
   const inDanger = view.confidence < BOARD.sackThreshold;
   const roundsInDanger = inDanger ? career.roundsInDanger + 1 : 0;
@@ -424,7 +443,7 @@ async function createJobOffers(
   const table =
     finished.length > 0
       ? finished.sort((a, b) => a.position - b.position)
-      : (await buildLeagueTable(career.id, judgeSeason)).map((row) => ({
+      : (await buildLeagueTable(career.id, judgeSeason, tx)).map((row) => ({
           clubId: row.clubId,
           position: row.position,
         }));
