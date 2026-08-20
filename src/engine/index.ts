@@ -136,4 +136,41 @@ export {
   type TransferTarget,
 } from "./transferMarket";
 
+export {
+  BOARD,
+  assessBoard,
+  evaluateFundsRequest,
+  evaluateSellRequest,
+  expectationFromStrength,
+  ordinal,
+  shouldSack,
+  type BoardView,
+  type ConfidenceArea,
+  type ConfidenceAreaKey,
+  type RequestType,
+  type RequestVerdict,
+  type SeasonProgress,
+} from "./board";
+
+export {
+  ROLLOVER,
+  ageOneSummer,
+  applyPromotionAndRelegation,
+  type AgeingResult,
+  type PromotionResult,
+  type TableStanding,
+} from "./seasonRollover";
+
+export {
+  CUP,
+  CUP_ROUND_NAMES,
+  cupRoundName,
+  cupRoundForLeagueRound,
+  drawRound,
+  leagueRoundForCupRound,
+  penaltyShootout,
+  selectEntrants,
+  type CupTie,
+} from "./cup";
+
 export { MATCH, FATIGUE, DISCIPLINE, COLOUR } from "./constants";
