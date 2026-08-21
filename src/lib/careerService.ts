@@ -278,6 +278,7 @@ export type SquadMember = {
     clubId: number | null;
     attributeDeltas: unknown;
     trainingFocus: string | null;
+    listedForSale: boolean;
     fitness: number;
     form: number;
     injuredUntilRound: number | null;
