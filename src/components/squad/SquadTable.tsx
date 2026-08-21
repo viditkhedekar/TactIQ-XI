@@ -24,6 +24,7 @@ export type SquadRow = {
   unavailable: "injured" | "suspended" | null;
   injuredUntilRound: number | null;
   suspendedUntilRound: number | null;
+  listedForSale: boolean;
   apps: number;
   goals: number;
   assists: number;
@@ -141,6 +142,14 @@ export function SquadTable({
                     {row.name}
                   </Link>
                   <AvailabilityIcon reason={row.unavailable} />
+                  {row.listedForSale && (
+                    <span
+                      title="The board has agreed to sell him"
+                      className="rounded border border-[var(--accent)] px-1 text-[9px] font-medium uppercase tracking-wide text-[var(--accent)]"
+                    >
+                      Listed
+                    </span>
+                  )}
                 </span>
               </td>
               <td className="px-2 py-1 text-[11px] text-[var(--text-muted)]">{row.positions}</td>
