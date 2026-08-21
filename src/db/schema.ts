@@ -512,6 +512,14 @@ export const careerPlayerState = pgTable(
     age: smallint("age"),
     /** Extra work this player has been put on, overriding the squad's focus. */
     trainingFocus: text("training_focus"),
+    /**
+     * Whether the board has agreed to let this player go, via a "sell player"
+     * request. Nothing about pricing or the market reads this directly, only
+     * transferService.ts, which treats a listed player like the fringe/unwanted
+     * case it already had and draws AI interest towards him each round. Reset
+     * to false the moment he actually moves clubs.
+     */
+    listedForSale: boolean("listed_for_sale").notNull().default(false),
     /** Set the summer a player hangs his boots up, so he stops being selectable. */
     retiredInSeason: smallint("retired_in_season"),
     fitness: real("fitness").notNull().default(100),

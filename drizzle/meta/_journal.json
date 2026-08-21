@@ -43,6 +43,13 @@
       "when": 1787238126241,
       "tag": "0005_last_fixer",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787303041825,
+      "tag": "0006_yummy_nightshade",
+      "breakpoints": true
     }
   ]
 }

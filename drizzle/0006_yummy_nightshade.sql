@@ -1,0 +1,1 @@
+ALTER TABLE "career_player_state" ADD COLUMN "listed_for_sale" boolean DEFAULT false NOT NULL;
