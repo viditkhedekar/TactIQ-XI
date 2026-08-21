@@ -68,6 +68,13 @@ export const TRANSFER = {
   aiBidsPerWindow: 3,
   /** How far above its own asking price an AI club will go for a target. */
   aiMaxOverpay: 0.25,
+
+  /**
+   * How many distinct clubs will come in for a player the board has agreed to
+   * sell before the interest tops out. One of these lands immediately when he
+   * is listed; the rest trickle in at up to one a round.
+   */
+  listedMaxSuitors: 3,
 };
 
 /* ------------------------------------------------------------------ valuing */
