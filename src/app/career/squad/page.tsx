@@ -31,6 +31,7 @@ export default async function SquadPage() {
     unavailable: unavailableReason(state, career.currentRound),
     injuredUntilRound: state.injuredUntilRound,
     suspendedUntilRound: state.suspendedUntilRound,
+    listedForSale: state.listedForSale,
     apps: state.apps,
     goals: state.goals,
     assists: state.assists,
