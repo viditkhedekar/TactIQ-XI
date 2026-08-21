@@ -122,6 +122,8 @@ type MarketPlayer = {
   engine: EnginePlayer;
   clubId: number;
   wage: number;
+  /** Set once the board has agreed to sell him. See listPlayerForSale below. */
+  listedForSale: boolean;
 };
 
 /** Every player in the career, grouped by the club they currently play for. */
@@ -145,6 +147,7 @@ async function loadMarket(
     engine: toEnginePlayer(player, state),
     clubId: state.clubId ?? player.clubId,
     wage: weeklyWage(player),
+    listedForSale: state.listedForSale,
   }));
 
   const byClub = new Map<number, MarketPlayer[]>();
@@ -187,7 +190,12 @@ function priceFor(
   const rng = createRng(hash32(`${careerId}-price-${player.row.id}-${round}`));
   const value = transferValue(player.engine, player.row.valueEur, player.row.potential);
   const importance = importanceOf(player, squad);
-  return askingPrice(rng, value, importance, { unwanted: importance < 0.12 });
+  // A player the board has agreed to sell prices the same as any other fringe
+  // player the club is glad to be rid of, regardless of how central he is to
+  // the side: the whole point of asking was to move him on.
+  return askingPrice(rng, value, importance, {
+    unwanted: importance < 0.12 || player.listedForSale,
+  });
 }
 
 /**
@@ -560,7 +568,7 @@ async function transferPlayer(
 ): Promise<void> {
   await tx
     .update(careerPlayerState)
-    .set({ clubId: offer.toClubId })
+    .set({ clubId: offer.toClubId, listedForSale: false })
     .where(
       and(
         eq(careerPlayerState.careerId, careerId),
@@ -655,6 +663,7 @@ export async function processTransferRound(
   }
 
   await runAiMarket(tx, careerId, userClubId, round);
+  await runListedPlayerInterest(tx, careerId, userClubId, round);
 }
 
 /** Selling clubs answer the bids that have been sitting on their desk. */
@@ -869,6 +878,172 @@ const GROUPS: Record<string, string[]> = {
 function groupMatches(player: MarketPlayer, group: string): boolean {
   const list = GROUPS[group] ?? [];
   return player.row.positions.some((p) => list.includes(p));
+}
+
+/* ------------------------------------------------------------ board sales */
+
+/**
+ * One AI club willing to take a specific player right now, chosen from
+ * whichever clubs can afford him.
+ *
+ * Unlike `runAiMarket`'s search, this does not require the player to be a
+ * club's single biggest priority: a listed player is openly for sale and
+ * priced accordingly (see `priceFor`'s `listedForSale` check), so an
+ * opportunistic move from a club with room in that position is plausible even
+ * when it is not their top need. `excludeClubIds` keeps a player from getting
+ * a second offer from a club that already has one in for him.
+ */
+function findBuyerFor(
+  careerId: string,
+  userClubId: number,
+  player: MarketPlayer,
+  sellerSquad: MarketPlayer[],
+  byClub: Map<number, MarketPlayer[]>,
+  finances: Map<number, { transferBudget: number; wageBudget: number; wageSpend: number }>,
+  round: number,
+  excludeClubIds: Set<number>,
+): { clubId: number; feeEur: number; wageEur: number } | null {
+  const sellerStrength = squadStrength(sellerSquad.map((p) => p.engine));
+  const rng = createRng(hash32(`${careerId}-listing-${player.row.id}-${round}`));
+
+  const candidates: { clubId: number; feeEur: number; wageEur: number }[] = [];
+
+  for (const clubId of PL_CLUB_IDS) {
+    if (clubId === userClubId || excludeClubIds.has(clubId)) continue;
+
+    const squad = byClub.get(clubId) ?? [];
+    const finance = finances.get(clubId);
+    if (!finance || squad.length >= TRANSFER.maxSquadSize) continue;
+
+    const fee = quotedPriceFor(careerId, round, player, sellerSquad, finance.transferBudget);
+    if (fee > finance.transferBudget) continue;
+
+    const wage = playerWageDemand(
+      player.wage,
+      sellerStrength,
+      squadStrength(squad.map((p) => p.engine)),
+    );
+    if (wage > finance.wageBudget - finance.wageSpend) continue;
+
+    candidates.push({ clubId, feeEur: fee, wageEur: wage });
+  }
+
+  if (candidates.length === 0) return null;
+  return candidates[randInt(rng, 0, candidates.length - 1)];
+}
+
+/**
+ * Marks a player as available and, if a buyer can be found straight away,
+ * puts in an immediate offer rather than making the manager wait for the next
+ * round. Called once, right after the board grants a sell request.
+ */
+export async function listPlayerForSale(
+  tx: Tx,
+  careerId: string,
+  userClubId: number,
+  playerId: number,
+  round: number,
+): Promise<{ immediateOffer: boolean }> {
+  await tx
+    .update(careerPlayerState)
+    .set({ listedForSale: true })
+    .where(
+      and(eq(careerPlayerState.careerId, careerId), eq(careerPlayerState.playerId, playerId)),
+    );
+
+  const { byClub } = await loadMarket(tx, careerId);
+  const sellerSquad = byClub.get(userClubId) ?? [];
+  const player = sellerSquad.find((p) => p.row.id === playerId);
+  if (!player) return { immediateOffer: false };
+
+  const finances = await loadAllFinances(tx, careerId);
+  const buyer = findBuyerFor(careerId, userClubId, player, sellerSquad, byClub, finances, round, new Set());
+  if (!buyer) return { immediateOffer: false };
+
+  await tx.insert(transferOffers).values({
+    careerId,
+    playerId,
+    fromClubId: userClubId,
+    toClubId: buyer.clubId,
+    isUserOffer: false,
+    feeEur: buyer.feeEur,
+    wageEur: buyer.wageEur,
+    round,
+    resolvesOnRound: round + TRANSFER.responseDelay,
+  });
+
+  return { immediateOffer: true };
+}
+
+/**
+ * The trickle of further interest a listed player draws each round on top of
+ * his immediate offer, up to a handful of clubs total. Runs every round a
+ * window is open, alongside the ordinary need-driven AI market.
+ */
+async function runListedPlayerInterest(
+  tx: Tx,
+  careerId: string,
+  userClubId: number,
+  round: number,
+): Promise<void> {
+  const { byClub } = await loadMarket(tx, careerId);
+  const listed = (byClub.get(userClubId) ?? []).filter((p) => p.listedForSale);
+  if (listed.length === 0) return;
+
+  const finances = await loadAllFinances(tx, careerId);
+  const sellerSquad = byClub.get(userClubId) ?? [];
+
+  const offersMade = await tx
+    .select({ playerId: transferOffers.playerId, toClubId: transferOffers.toClubId })
+    .from(transferOffers)
+    .where(
+      and(
+        eq(transferOffers.careerId, careerId),
+        eq(transferOffers.fromClubId, userClubId),
+        inArray(
+          transferOffers.playerId,
+          listed.map((p) => p.row.id),
+        ),
+      ),
+    );
+
+  const pending: (typeof transferOffers.$inferInsert)[] = [];
+
+  for (const player of listed) {
+    // Every club that has ever come in for him counts against the cap, not
+    // just live offers: three genuine suitors is the ceiling regardless of
+    // whether earlier ones were rejected or fell through.
+    const interested = new Set(
+      offersMade.filter((o) => o.playerId === player.row.id).map((o) => o.toClubId),
+    );
+    if (interested.size >= TRANSFER.listedMaxSuitors) continue;
+
+    const buyer = findBuyerFor(
+      careerId,
+      userClubId,
+      player,
+      sellerSquad,
+      byClub,
+      finances,
+      round,
+      interested,
+    );
+    if (!buyer) continue;
+
+    pending.push({
+      careerId,
+      playerId: player.row.id,
+      fromClubId: userClubId,
+      toClubId: buyer.clubId,
+      isUserOffer: false,
+      feeEur: buyer.feeEur,
+      wageEur: buyer.wageEur,
+      round,
+      resolvesOnRound: round + TRANSFER.responseDelay,
+    });
+  }
+
+  if (pending.length > 0) await tx.insert(transferOffers).values(pending);
 }
 
 /* ---------------------------------------------------------------- listings */
