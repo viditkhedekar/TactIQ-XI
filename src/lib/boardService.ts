@@ -37,6 +37,7 @@ import {
 import { toEnginePlayer } from "./engineAdapter";
 import { buildLeagueTable, loadDivision } from "./seasonService";
 import { cupProgressFor } from "./cupService";
+import { listPlayerForSale, transferWindow } from "./transferService";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -363,6 +364,17 @@ export async function requestSale(careerId: string, playerId: number): Promise<R
   if ((row.state.clubId ?? row.player.clubId) !== career.clubId) {
     return { ok: false, message: "He is not your player" };
   }
+  if (row.state.listedForSale) {
+    return { ok: true, message: `${row.player.shortName} is already listed for sale.` };
+  }
+
+  // Listing only works while a window is open: the AI clubs that are meant to
+  // come in for him do not act at all outside one, so granting the request
+  // any other time would produce a "yes" that goes nowhere.
+  const window = transferWindow(career.currentRound);
+  if (!window.open) {
+    return { ok: false, message: "The transfer window is shut. Ask again once one opens." };
+  }
 
   // "Key" is measured against the squad he is in, so a good player at a great
   // club is not automatically untouchable.
@@ -383,17 +395,27 @@ export async function requestSale(careerId: string, playerId: number): Promise<R
 
   const verdict = evaluateSellRequest(row.player.shortName, isKeyPlayer, career.boardConfidence);
 
-  await db.insert(boardRequests).values({
-    careerId,
-    season: career.season,
-    round: career.currentRound,
-    type: "sell_player",
-    playerId,
-    outcome: verdict.outcome,
-    response: verdict.response,
+  const { immediateOffer } = await db.transaction(async (tx) => {
+    await tx.insert(boardRequests).values({
+      careerId,
+      season: career.season,
+      round: career.currentRound,
+      type: "sell_player",
+      playerId,
+      outcome: verdict.outcome,
+      response: verdict.response,
+    });
+
+    if (verdict.outcome !== "granted") return { immediateOffer: false };
+    return listPlayerForSale(tx, careerId, career.clubId, playerId, career.currentRound);
   });
 
-  return { ok: verdict.outcome === "granted", message: verdict.response };
+  const message =
+    verdict.outcome === "granted" && immediateOffer
+      ? `${verdict.response} A club has already come in with an offer.`
+      : verdict.response;
+
+  return { ok: verdict.outcome === "granted", message };
 }
 
 /** This season's requests, newest first. */
