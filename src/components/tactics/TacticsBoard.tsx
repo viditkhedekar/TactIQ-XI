@@ -9,10 +9,12 @@
  * drawer, because a plan you cannot change at half time is only half a plan.
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { saveTacticsAction } from "@/app/actions";
 import {
+  anchorAt,
   normaliseTactics,
+  snapToAnchor,
   type PitchPlacement,
   type Slot,
   type TacticalStyleName,
@@ -52,8 +54,109 @@ export function TacticsBoard({
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Shared with PitchBoard so a drag that starts on a squad-list row (outside
+  // the pitch entirely) can be judged against the exact box the pitch itself
+  // uses for its own internal drags.
+  const pitchRef = useRef<HTMLDivElement>(null);
+  const [incomingDrag, setIncomingDrag] = useState<{
+    playerId: number;
+    startX: number;
+    startY: number;
+    clientX: number;
+    clientY: number;
+    moved: boolean;
+  } | null>(null);
+  // A completed drag still fires a click on the element pointer capture is
+  // set on. This swallows exactly that one ghost click so it cannot re-run
+  // the click-to-swap flow with a stale selection right after a drop.
+  const suppressClickRef = useRef(false);
+
   const byId = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
   const starterIds = useMemo(() => new Set(lineup.map((e) => e.playerId)), [lineup]);
+  const DRAG_THRESHOLD = 6;
+
+  /** Begins a drag from a squad-list row. Real movement is confirmed in onMove. */
+  function startIncomingDrag(event: React.PointerEvent, playerId: number) {
+    if (event.button !== 0) return;
+    try {
+      (event.target as Element).setPointerCapture?.(event.pointerId);
+    } catch {
+      // Carry on without capture.
+    }
+    setIncomingDrag({
+      playerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      moved: false,
+    });
+  }
+
+  function onIncomingMove(event: React.PointerEvent) {
+    if (!incomingDrag) return;
+    const dx = event.clientX - incomingDrag.startX;
+    const dy = event.clientY - incomingDrag.startY;
+    const moved = incomingDrag.moved || Math.hypot(dx, dy) > DRAG_THRESHOLD;
+    // The moment this crosses from a click into a real drag, any pitch
+    // selection stops meaning anything: the drop target is now wherever the
+    // player lands, not wherever was tapped earlier.
+    if (moved && !incomingDrag.moved) setSelectedId(null);
+    setIncomingDrag({ ...incomingDrag, clientX: event.clientX, clientY: event.clientY, moved });
+  }
+
+  /**
+   * Drops a squad-list player onto the pitch. Landing on a teammate swaps the
+   * two, exactly like dragging within the pitch does; landing on a free anchor
+   * (the side has fewer than eleven) just adds him. Either way he leaves the
+   * bench if that is where he came from.
+   */
+  function endIncomingDrag(event: React.PointerEvent) {
+    if (!incomingDrag) return;
+    const { playerId, moved } = incomingDrag;
+    setIncomingDrag(null);
+    if (!moved) return; // A plain click: let its own click handler run.
+
+    suppressClickRef.current = true;
+
+    const box = pitchRef.current?.getBoundingClientRect();
+    if (!box) return;
+
+    const { clientX, clientY } = event;
+    if (clientX < box.left || clientX > box.right || clientY < box.top || clientY > box.bottom) {
+      // Released away from the pitch: dragging him out this way does nothing,
+      // rather than guessing he meant the nearest edge.
+      return;
+    }
+
+    const point = {
+      x: Math.max(0, Math.min(100, ((clientX - box.left) / box.width) * 100)),
+      y: Math.max(0, Math.min(100, ((clientY - box.top) / box.height) * 100)),
+    };
+    const target = snapToAnchor(point);
+    const occupant = anchorAt(lineup, target);
+
+    if (occupant) {
+      setLineup((prev) =>
+        prev.map((p) =>
+          p.playerId === occupant.playerId
+            ? { playerId, slot: target.slot, x: target.x, y: target.y }
+            : p,
+        ),
+      );
+      setBench((prev) => [...prev.filter((id) => id !== playerId), occupant.playerId].slice(0, 9));
+      setMessage(null);
+    } else if (lineup.length < 11) {
+      // A genuinely empty anchor, and there is still room for an eleventh man.
+      setLineup((prev) => [...prev, { playerId, slot: target.slot, x: target.x, y: target.y }]);
+      setBench((prev) => prev.filter((id) => id !== playerId));
+      setMessage(null);
+    } else {
+      // Eleven are already out there. An empty anchor here is a gap in the
+      // current shape, not a spare place: drop him onto somebody instead.
+      setMessage({ text: "You already have eleven out there. Drop him onto a player to swap.", ok: false });
+    }
+  }
 
   function patch(change: Partial<TeamTactics>) {
     setTactics((prev) => normaliseTactics({ ...prev, ...change }));
@@ -142,7 +245,12 @@ export function TacticsBoard({
   );
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)_minmax(0,320px)]">
+    <div
+      className="grid gap-3 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)_minmax(0,320px)]"
+      onPointerMove={onIncomingMove}
+      onPointerUp={endIncomingDrag}
+      onPointerCancel={() => setIncomingDrag(null)}
+    >
       {/* -------------------------------------------------------- the board */}
       <div className="space-y-3">
         <Panel>
@@ -157,6 +265,8 @@ export function TacticsBoard({
                 setLineup(next);
                 setMessage(null);
               }}
+              pitchRef={pitchRef}
+              showAnchors={incomingDrag?.moved ?? false}
             />
           </div>
         </Panel>
@@ -235,9 +345,23 @@ export function TacticsBoard({
                       <td className="px-3 py-1">
                         <button
                           type="button"
-                          disabled={player.unavailable !== null || selectedId === null}
-                          onClick={() => bringIn(player.id)}
-                          className="flex items-center gap-1.5 text-left disabled:cursor-not-allowed hover:text-[var(--accent)] disabled:hover:text-[var(--text)]"
+                          disabled={player.unavailable !== null}
+                          onPointerDown={(e) => {
+                            // Starters already drag from the pitch itself; this
+                            // is only for bringing someone new on.
+                            if (!starting) startIncomingDrag(e, player.id);
+                          }}
+                          onClick={() => {
+                            if (suppressClickRef.current) {
+                              suppressClickRef.current = false;
+                              return;
+                            }
+                            bringIn(player.id);
+                          }}
+                          style={starting ? undefined : { touchAction: "none" }}
+                          className={`flex items-center gap-1.5 text-left disabled:cursor-not-allowed hover:text-[var(--accent)] disabled:hover:text-[var(--text)] ${
+                            starting ? "" : "cursor-grab active:cursor-grabbing"
+                          }`}
                         >
                           <span className="truncate">{player.name}</span>
                           {tactics.captainId === player.id && (
@@ -330,6 +454,23 @@ export function TacticsBoard({
           <InstructionChoices tactics={tactics} onChange={patch} />
         </Panel>
       </div>
+
+      {/* Follows the cursor for a drag that started on a squad-list row, well
+          outside the pitch's own coordinate space. */}
+      {incomingDrag?.moved && (
+        <span
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded px-1.5 py-0.5 text-[11px] font-medium shadow-lg"
+          style={{
+            left: incomingDrag.clientX,
+            top: incomingDrag.clientY,
+            background: "var(--bg-raised)",
+            border: "1px solid var(--accent)",
+            color: "var(--text)",
+          }}
+        >
+          {byId.get(incomingDrag.playerId)?.name ?? "Player"}
+        </span>
+      )}
     </div>
   );
 }
