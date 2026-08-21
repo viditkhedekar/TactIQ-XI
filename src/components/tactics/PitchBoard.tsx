@@ -13,7 +13,7 @@
  * targets are awkward to define over a free surface like this.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type RefObject } from "react";
 import { PITCH_ANCHORS, anchorAt, describeShape, snapToAnchor } from "@/engine";
 import type { PitchPlacement, Slot } from "@/engine";
 import { SLOT_LABEL } from "./formationLayout";
@@ -43,6 +43,8 @@ export function PitchBoard({
   onSelect,
   onChange,
   compact = false,
+  pitchRef: externalPitchRef,
+  showAnchors = false,
 }: {
   placements: PitchPlacement[];
   players: Map<number, BoardPlayer>;
@@ -51,8 +53,18 @@ export function PitchBoard({
   onSelect: (playerId: number | null) => void;
   onChange: (placements: PitchPlacement[]) => void;
   compact?: boolean;
+  /**
+   * Shared with a parent that also needs the pitch's on-screen bounds, so a
+   * drag that starts outside this component (a bench or reserve row in the
+   * squad list) can be judged against the exact same box this component uses
+   * for its own drags. Falls back to an internal ref when nobody needs that.
+   */
+  pitchRef?: RefObject<HTMLDivElement | null>;
+  /** Show the empty-anchor dots for a drag this component did not start. */
+  showAnchors?: boolean;
 }) {
-  const pitchRef = useRef<HTMLDivElement>(null);
+  const ownPitchRef = useRef<HTMLDivElement>(null);
+  const pitchRef = externalPitchRef ?? ownPitchRef;
   const [dragging, setDragging] = useState<{ playerId: number; x: number; y: number } | null>(null);
 
   /** Cursor position as a percentage of the pitch, clamped to it. */
@@ -154,7 +166,7 @@ export function PitchBoard({
 
         {/* Empty anchors, shown only while dragging so the board is not a mess
             of dots the rest of the time. */}
-        {dragging &&
+        {(dragging || showAnchors) &&
           PITCH_ANCHORS.filter((a) => !occupied.has(`${a.x}:${a.y}`)).map((a) => (
             <span
               key={`${a.slot}-${a.x}-${a.y}`}
@@ -228,7 +240,8 @@ export function PitchBoard({
       </div>
 
       <p className="mt-1.5 px-1 text-center text-[10px] text-[var(--text-dim)]">
-        Drag to rearrange. Drop onto a teammate to swap. Tap to select, then pick from the squad.
+        Drag to rearrange, or drag anyone from the squad list, bench included, straight onto a
+        spot. Dropping onto a teammate swaps the two.
       </p>
     </div>
   );
